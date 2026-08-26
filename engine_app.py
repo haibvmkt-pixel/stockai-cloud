@@ -84,7 +84,6 @@ def init_db_and_seed_fast():
 
 init_db_and_seed_fast()
 
-# --- TẠO DỮ LIỆU MẪU ĐỂ VẼ BIỂU ĐỒ KHI KHÔNG CÓ MẠNG ---
 def generate_mock_df(symbol, days=365):
     dates = [datetime.now() - timedelta(days=i) for i in range(days)][::-1]
     np.random.seed(hash(symbol) % 10000)
@@ -104,7 +103,6 @@ def generate_mock_df(symbol, days=365):
 
 @st.cache_data(ttl=600, show_spinner=False)
 def get_history_smart(ticker, start, end):
-    # 1. Thử cào dữ liệu qua vnstock
     if vnstock is not None:
         sources = ['VCI', 'TCBS', 'DNSE']
         for src in sources:
@@ -121,10 +119,8 @@ def get_history_smart(ticker, start, end):
                     return df
             except Exception:
                 continue
-    # 2. Tự động sinh chuỗi nến kỹ thuật chuẩn để vẽ biểu đồ Ichimoku
     return generate_mock_df(ticker)
 
-# --- TÍNH CHỈ BÁO THUẦN PYTHON ---
 def calculate_rsi(series, period=14):
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
@@ -253,23 +249,97 @@ def get_filtered_stocks_cached(limit_count, is_speculation=False):
         log_error(f"Loi get_filtered_stocks_cached: {e}")
         return pd.DataFrame()
 
-# --- STREAMLIT UI ---
+# --- CONFIG LIGHT MODE CHUYÊN NGHIỆP ---
 st.set_page_config(page_title="StockAI Enterprise", layout="wide", page_icon="📈")
 
 st.markdown("""
 <style>
-    .stApp { background-color: #0E1117; color: #FAFAFA; }
-    .stMetric { background-color: #1E222D; padding: 15px; border-radius: 10px; border: 1px solid #2A2E39; }
-    div[data-testid="stBlock"] { background-color: #131722; padding: 20px; border-radius: 12px; border: 1px solid #2A2E39; margin-bottom: 10px; }
+    /* Tổng thể nền sáng */
+    .stApp {
+        background-color: #F8F9FA !important;
+        color: #1E293B !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
     
-    .signal-buy { background-color: rgba(46, 125, 50, 0.25) !important; color: #2ecc71 !important; font-weight: bold; padding: 6px 12px; border-radius: 4px; border: 1px solid #2ecc71; }
-    .signal-sell { background-color: rgba(198, 40, 40, 0.25) !important; color: #e74c3c !important; font-weight: bold; padding: 6px 12px; border-radius: 4px; border: 1px solid #e74c3c; }
-    .signal-hold { background-color: rgba(243, 156, 18, 0.25) !important; color: #f1c40f !important; font-weight: bold; padding: 6px 12px; border-radius: 4px; border: 1px solid #f1c40f; }
+    /* Sidebar thiết kế tối giản */
+    section[data-testid="stSidebar"] {
+        background-color: #FFFFFF !important;
+        border-right: 1px solid #E2E8F0;
+    }
+    
+    /* Card Metric phong cách Bloomberg Terminal Light */
+    div[data-testid="stMetric"] {
+        background-color: #FFFFFF !important;
+        padding: 16px;
+        border-radius: 8px;
+        border: 1px solid #E2E8F0;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    
+    div[data-testid="stMetricLabel"] {
+        color: #64748B !important;
+        font-size: 0.85rem !important;
+        font-weight: 600 !important;
+    }
+
+    div[data-testid="stMetricValue"] {
+        color: #0F172A !important;
+        font-weight: 700 !important;
+    }
+
+    /* Style khối chứa chính */
+    div[data-testid="stBlock"] {
+        background-color: #FFFFFF;
+        padding: 20px;
+        border-radius: 8px;
+        border: 1px solid #E2E8F0;
+        margin-bottom: 12px;
+    }
+
+    /* Badge tín hiệu nổi bật */
+    .signal-buy {
+        background-color: #DCFCE7 !important;
+        color: #166534 !important;
+        font-weight: 700 !important;
+        padding: 6px 14px;
+        border-radius: 6px;
+        border: 1px solid #86EFAC;
+        display: inline-block;
+    }
+    .signal-sell {
+        background-color: #FEE2E2 !important;
+        color: #991B1B !important;
+        font-weight: 700 !important;
+        padding: 6px 14px;
+        border-radius: 6px;
+        border: 1px solid #FCA5A5;
+        display: inline-block;
+    }
+    .signal-hold {
+        background-color: #FEF3C7 !important;
+        color: #92400E !important;
+        font-weight: 700 !important;
+        padding: 6px 14px;
+        border-radius: 6px;
+        border: 1px solid #FDE68A;
+        display: inline-block;
+    }
+
+    /* Tab styling */
+    button[data-baseweb="tab"] {
+        font-weight: 600 !important;
+        font-size: 0.95rem !important;
+        color: #64748B !important;
+    }
+    button[aria-selected="true"] {
+        color: #2563EB !important;
+        border-bottom-color: #2563EB !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("⚡ StockAI Enterprise - Terminal Phân Tích & Kỷ Luật Đầu Tư")
-st.caption("Hệ thống Trí Tuệ Nhân Tạo Quản Trị Rủi Ro & Nhận Diện Dòng Tiền Thông Minh")
+st.title("📈 StockAI Enterprise — Terminal Phân Tích & Kỷ Luật Đầu Tư")
+st.caption("Hệ thống Trí Tuệ Nhân Tạo Quản Trị Rủi Ro & Nhận Diện Dòng Tiền Phân Hạng Định Giá")
 
 st.sidebar.header("⚙️ CẤU HÌNH & QUẢN LÝ VỐN")
 symbol = st.sidebar.text_input("Mã Cổ Phiếu Phân Tích:", value="SSI").upper().strip()
@@ -303,7 +373,7 @@ with tab1:
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Giá Khớp Lệnh", display_price_str)
-        m2.metric("RSI / MFI (14)", f"{latest['rsi']:.1f} / {latest['mfi']:.1f}" if pd.notnull(latest['mfi']) else "N/A")
+        m2.metric("Chỉ Số RSI / MFI (14)", f"{latest['rsi']:.1f} / {latest['mfi']:.1f}" if pd.notnull(latest['mfi']) else "N/A")
         
         if "MUA" in ai_signal:
             m3.markdown(f"**Khuyến Nghị AI:** <span class='signal-buy'>{ai_signal}</span>", unsafe_allow_html=True)
@@ -339,21 +409,28 @@ with tab1:
         c2.metric("Số Tiền Khuyến Nghị Đi Lệnh", f"{target_amount:,.0f} VND")
         c3.metric("Số Lượng Cổ Phiếu Nên Mua", f"{max_shares:,} CP")
 
+        # BIỂU ĐỒ LIGHT MODE CHUẨN TRADINGVIEW
         time_col = "time" if "time" in df.columns else ("date" if "date" in df.columns else df.columns[0])
         fig = go.Figure()
         
-        fig.add_trace(go.Candlestick(x=df[time_col], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name="Nến Giá"))
-        fig.add_trace(go.Scatter(x=df[time_col], y=df['kijun_129'], line=dict(color='#FFD700', width=3.5), name="Kijun 129 (Trục Định Giá Dài Hạn)"))
-        fig.add_trace(go.Scatter(x=df[time_col], y=df['span_a'], line=dict(color='rgba(0, 255, 150, 0.5)', width=1), name="Span A"))
-        fig.add_trace(go.Scatter(x=df[time_col], y=df['span_b'], line=dict(color='rgba(255, 50, 50, 0.5)', width=1), fill='tonexty', fillcolor='rgba(0, 230, 118, 0.12)', name="Mây Ichimoku"))
+        fig.add_trace(go.Candlestick(
+            x=df[time_col], open=df['open'], high=df['high'], low=df['low'], close=df['close'],
+            increasing_line_color='#089981', decreasing_line_color='#F23645',
+            name="Nến Giá"
+        ))
+        fig.add_trace(go.Scatter(x=df[time_col], y=df['kijun_129'], line=dict(color='#D97706', width=2.5), name="Kijun 129 (Trục Định Giá Dài Hạn)"))
+        fig.add_trace(go.Scatter(x=df[time_col], y=df['span_a'], line=dict(color='rgba(8, 153, 129, 0.4)', width=1), name="Span A"))
+        fig.add_trace(go.Scatter(x=df[time_col], y=df['span_b'], line=dict(color='rgba(242, 54, 69, 0.4)', width=1), fill='tonexty', fillcolor='rgba(8, 153, 129, 0.08)', name="Mây Ichimoku"))
 
         fig.update_layout(
-            title=f"Biểu Đồ Kỹ Thuật Ichimoku & Kijun 129 - {symbol}",
+            title=dict(text=f"Biểu Đồ Phân Tích Ichimoku & Kijun 129 — {symbol}", font=dict(color='#0F172A', size=16)),
             height=550,
-            template="plotly_dark",
+            template="plotly_white",
             xaxis_rangeslider_visible=False,
-            paper_bgcolor="#131722",
-            plot_bgcolor="#131722"
+            paper_bgcolor="#FFFFFF",
+            plot_bgcolor="#FFFFFF",
+            xaxis=dict(showgrid=True, gridcolor='#F1F5F9'),
+            yaxis=dict(showgrid=True, gridcolor='#F1F5F9')
         )
         st.plotly_chart(fig, use_container_width=True)
 
