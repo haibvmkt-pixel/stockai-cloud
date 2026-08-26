@@ -1,0 +1,35 @@
+name: StockAI Auto-Learning Workflow
+
+on:
+  schedule:
+    - cron: '0 8 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  run-ai-learning:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Execute AI Learning
+        run: |
+          python ai_workflow.py
+
+      - name: Commit and Push Updated DB
+        run: |
+          git config --global user.name "StockAI-Bot"
+          git config --global user.email "bot@stockai.com"
+          git add stock_data.db
+          git commit -m "Auto-update AI learning data" || exit 0
+          git push
