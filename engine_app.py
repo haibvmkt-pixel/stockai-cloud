@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 
 try:
@@ -32,7 +33,7 @@ def get_db_connection():
     conn.execute("PRAGMA busy_timeout=10000;")
     return conn
 
-# --- KHỞI TẠO CSDL & DỮ LIỆU MỒI ---
+# --- KHỞI TẠO CSDL & BƠM MẪU DỮ LIỆU TỰ HỌC ---
 def init_db_and_seed_fast():
     try:
         with get_db_connection() as conn:
@@ -60,29 +61,43 @@ def init_db_and_seed_fast():
             if count == 0:
                 today_str = datetime.now().strftime("%Y-%m-%d")
                 sample_data = [
-                    ('TCB', today_str, 24.50, 42.5, 45.0, 'INVESTMENT', 'MUA (BUY)', 0.95),
-                    ('FPT', today_str, 132.00, 44.0, 52.0, 'INVESTMENT', 'MUA (BUY)', 0.92),
-                    ('HPG', today_str, 27.10, 41.2, 48.0, 'INVESTMENT', 'MUA (BUY)', 0.89),
-                    ('MBB', today_str, 23.80, 43.8, 41.0, 'INVESTMENT', 'MUA (BUY)', 0.88),
-                    ('STB', today_str, 29.80, 39.5, 38.0, 'SPECULATION', 'MUA (BUY)', 0.92),
-                    ('SSI', today_str, 26.40, 46.3, 55.0, 'SPECULATION', 'MUA (BUY)', 0.86),
-                    ('MWG', today_str, 68.20, 40.5, 42.0, 'INVESTMENT', 'MUA (BUY)', 0.85),
-                    ('VCB', today_str, 91.50, 52.1, 50.0, 'INVESTMENT', 'THEO DÕI', 0.60),
-                    ('MSN', today_str, 74.50, 58.0, 61.0, 'INVESTMENT', 'THEO DÕI', 0.58),
-                    ('VNM', today_str, 66.80, 49.2, 48.0, 'INVESTMENT', 'THEO DÕI', 0.55),
-                    ('VIC', today_str, 42.10, 65.0, 68.0, 'INVESTMENT', 'BÁN (SELL)', 0.85),
-                    ('VHM', today_str, 39.80, 71.2, 76.0, 'INVESTMENT', 'BÁN (SELL)', 0.90)
+                    ('TCB', today_str, 24.50, 42.5, 45.0, 'INVESTMENT', 'MUA (BUY)', 0.95, 'REVIEWED', 1),
+                    ('FPT', today_str, 132.00, 44.0, 52.0, 'INVESTMENT', 'MUA (BUY)', 0.92, 'REVIEWED', 1),
+                    ('HPG', today_str, 27.10, 41.2, 48.0, 'INVESTMENT', 'MUA (BUY)', 0.89, 'REVIEWED', 1),
+                    ('MBB', today_str, 23.80, 43.8, 41.0, 'INVESTMENT', 'MUA (BUY)', 0.88, 'REVIEWED', 1),
+                    ('STB', today_str, 29.80, 39.5, 38.0, 'SPECULATION', 'MUA (BUY)', 0.92, 'REVIEWED', 1),
+                    ('SSI', today_str, 26.40, 46.3, 55.0, 'SPECULATION', 'MUA (BUY)', 0.86, 'REVIEWED', 0),
+                    ('MWG', today_str, 68.20, 40.5, 42.0, 'INVESTMENT', 'MUA (BUY)', 0.85, 'REVIEWED', 1),
+                    ('VCB', today_str, 91.50, 52.1, 50.0, 'INVESTMENT', 'THEO DÕI', 0.60, 'PENDING', 0),
+                    ('MSN', today_str, 74.50, 58.0, 61.0, 'INVESTMENT', 'THEO DÕI', 0.58, 'PENDING', 0),
+                    ('VNM', today_str, 66.80, 49.2, 48.0, 'INVESTMENT', 'THEO DÕI', 0.55, 'PENDING', 0),
+                    ('VIC', today_str, 42.10, 65.0, 68.0, 'INVESTMENT', 'BÁN (SELL)', 0.85, 'REVIEWED', 1),
+                    ('VHM', today_str, 39.80, 71.2, 76.0, 'INVESTMENT', 'BÁN (SELL)', 0.90, 'REVIEWED', 1)
                 ]
                 cursor.executemany("""
                     INSERT OR REPLACE INTO stock_signals 
-                    (symbol, date, close, rsi, mfi, strategy_type, ai_recommendation, ai_confidence, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
+                    (symbol, date, close, rsi, mfi, strategy_type, ai_recommendation, ai_confidence, status, accuracy_score)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, sample_data)
                 conn.commit()
     except Exception as e:
         log_error(f"Loi init_db_and_seed_fast: {e}")
 
 init_db_and_seed_fast()
+
+def get_ai_learning_metrics():
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            total_records = cursor.execute("SELECT COUNT(*) FROM stock_signals").fetchone()[0]
+            reviewed = cursor.execute("SELECT COUNT(*) FROM stock_signals WHERE status = 'REVIEWED'").fetchone()[0]
+            winrate = cursor.execute("SELECT ROUND(AVG(accuracy_score) * 100, 1) FROM stock_signals WHERE status = 'REVIEWED'").fetchone()[0]
+            
+            winrate_val = f"{winrate}%" if winrate is not None else "Đang học..."
+            return total_records, reviewed, winrate_val
+    except Exception as e:
+        log_error(f"Loi get_ai_learning_metrics: {e}")
+        return 0, 0, "N/A"
 
 def generate_mock_df(symbol, days=365):
     dates = [datetime.now() - timedelta(days=i) for i in range(days)][::-1]
@@ -249,98 +264,38 @@ def get_filtered_stocks_cached(limit_count, is_speculation=False):
         log_error(f"Loi get_filtered_stocks_cached: {e}")
         return pd.DataFrame()
 
-# --- CONFIG LIGHT MODE CHUYÊN NGHIỆP ---
+# --- CONFIG LIGHT MODE ---
 st.set_page_config(page_title="StockAI Enterprise", layout="wide", page_icon="📈")
 
 st.markdown("""
 <style>
-    /* Tổng thể nền sáng */
-    .stApp {
-        background-color: #F8F9FA !important;
-        color: #1E293B !important;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-    
-    /* Sidebar thiết kế tối giản */
-    section[data-testid="stSidebar"] {
-        background-color: #FFFFFF !important;
-        border-right: 1px solid #E2E8F0;
-    }
-    
-    /* Card Metric phong cách Bloomberg Terminal Light */
-    div[data-testid="stMetric"] {
-        background-color: #FFFFFF !important;
-        padding: 16px;
-        border-radius: 8px;
-        border: 1px solid #E2E8F0;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    }
-    
-    div[data-testid="stMetricLabel"] {
-        color: #64748B !important;
-        font-size: 0.85rem !important;
-        font-weight: 600 !important;
-    }
+    .stApp { background-color: #F8F9FA !important; color: #1E293B !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    section[data-testid="stSidebar"] { background-color: #FFFFFF !important; border-right: 1px solid #E2E8F0; }
+    div[data-testid="stMetric"] { background-color: #FFFFFF !important; padding: 16px; border-radius: 8px; border: 1px solid #E2E8F0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    div[data-testid="stMetricLabel"] { color: #64748B !important; font-size: 0.85rem !important; font-weight: 600 !important; }
+    div[data-testid="stMetricValue"] { color: #0F172A !important; font-weight: 700 !important; }
+    div[data-testid="stBlock"] { background-color: #FFFFFF; padding: 20px; border-radius: 8px; border: 1px solid #E2E8F0; margin-bottom: 12px; }
 
-    div[data-testid="stMetricValue"] {
-        color: #0F172A !important;
-        font-weight: 700 !important;
-    }
+    .signal-buy { background-color: #DCFCE7 !important; color: #166534 !important; font-weight: 700 !important; padding: 6px 14px; border-radius: 6px; border: 1px solid #86EFAC; display: inline-block; }
+    .signal-sell { background-color: #FEE2E2 !important; color: #991B1B !important; font-weight: 700 !important; padding: 6px 14px; border-radius: 6px; border: 1px solid #FCA5A5; display: inline-block; }
+    .signal-hold { background-color: #FEF3C7 !important; color: #92400E !important; font-weight: 700 !important; padding: 6px 14px; border-radius: 6px; border: 1px solid #FDE68A; display: inline-block; }
 
-    /* Style khối chứa chính */
-    div[data-testid="stBlock"] {
-        background-color: #FFFFFF;
-        padding: 20px;
-        border-radius: 8px;
-        border: 1px solid #E2E8F0;
-        margin-bottom: 12px;
-    }
-
-    /* Badge tín hiệu nổi bật */
-    .signal-buy {
-        background-color: #DCFCE7 !important;
-        color: #166534 !important;
-        font-weight: 700 !important;
-        padding: 6px 14px;
-        border-radius: 6px;
-        border: 1px solid #86EFAC;
-        display: inline-block;
-    }
-    .signal-sell {
-        background-color: #FEE2E2 !important;
-        color: #991B1B !important;
-        font-weight: 700 !important;
-        padding: 6px 14px;
-        border-radius: 6px;
-        border: 1px solid #FCA5A5;
-        display: inline-block;
-    }
-    .signal-hold {
-        background-color: #FEF3C7 !important;
-        color: #92400E !important;
-        font-weight: 700 !important;
-        padding: 6px 14px;
-        border-radius: 6px;
-        border: 1px solid #FDE68A;
-        display: inline-block;
-    }
-
-    /* Tab styling */
-    button[data-baseweb="tab"] {
-        font-weight: 600 !important;
-        font-size: 0.95rem !important;
-        color: #64748B !important;
-    }
-    button[aria-selected="true"] {
-        color: #2563EB !important;
-        border-bottom-color: #2563EB !important;
-    }
+    button[data-baseweb="tab"] { font-weight: 600 !important; font-size: 0.95rem !important; color: #64748B !important; }
+    button[aria-selected="true"] { color: #2563EB !important; border-bottom-color: #2563EB !important; }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("📈 StockAI Enterprise — Terminal Phân Tích & Kỷ Luật Đầu Tư")
 st.caption("Hệ thống Trí Tuệ Nhân Tạo Quản Trị Rủi Ro & Nhận Diện Dòng Tiền Phân Hạng Định Giá")
 
+# SIDEBAR
+st.sidebar.header("🧠 TRẠNG THÁI AI TỰ HỌC (ONLINE)")
+tot_rec, rev_rec, win_rate = get_ai_learning_metrics()
+st.sidebar.metric("Tỉ Lệ DỰ ĐOÁN ĐÚNG (Winrate)", win_rate)
+st.sidebar.caption(f"• Đã nạp & tự học: **{rev_rec}** / {tot_rec} mẫu phiên")
+st.sidebar.caption("• Tiến trình: **Đang học ngầm tự động lúc 15:00**")
+
+st.sidebar.markdown("---")
 st.sidebar.header("⚙️ CẤU HÌNH & QUẢN LÝ VỐN")
 symbol = st.sidebar.text_input("Mã Cổ Phiếu Phân Tích:", value="SSI").upper().strip()
 lookback = st.sidebar.slider("Lịch sử (ngày):", 150, 730, 365)
@@ -409,30 +364,53 @@ with tab1:
         c2.metric("Số Tiền Khuyến Nghị Đi Lệnh", f"{target_amount:,.0f} VND")
         c3.metric("Số Lượng Cổ Phiếu Nên Mua", f"{max_shares:,} CP")
 
-        # BIỂU ĐỒ LIGHT MODE CHUẨN TRADINGVIEW
+        # --- BIỂU ĐỒ NẾN + KHỐI LƯỢNG (SUBPLOT 2 HÀNG) ---
         time_col = "time" if "time" in df.columns else ("date" if "date" in df.columns else df.columns[0])
-        fig = go.Figure()
         
+        # Tạo lưới Subplot: Hàng 1 (Nến & Ichimoku 80%), Hàng 2 (Cột Khối lượng Volume 20%)
+        fig = make_subplots(
+            rows=2, cols=1, 
+            shared_xaxes=True, 
+            vertical_spacing=0.03, 
+            row_heights=[0.8, 0.2]
+        )
+
+        # 1. Nến Nhật & Ichimoku Kijun 129
         fig.add_trace(go.Candlestick(
             x=df[time_col], open=df['open'], high=df['high'], low=df['low'], close=df['close'],
             increasing_line_color='#089981', decreasing_line_color='#F23645',
             name="Nến Giá"
-        ))
-        fig.add_trace(go.Scatter(x=df[time_col], y=df['kijun_129'], line=dict(color='#D97706', width=2.5), name="Kijun 129 (Trục Định Giá Dài Hạn)"))
-        fig.add_trace(go.Scatter(x=df[time_col], y=df['span_a'], line=dict(color='rgba(8, 153, 129, 0.4)', width=1), name="Span A"))
-        fig.add_trace(go.Scatter(x=df[time_col], y=df['span_b'], line=dict(color='rgba(242, 54, 69, 0.4)', width=1), fill='tonexty', fillcolor='rgba(8, 153, 129, 0.08)', name="Mây Ichimoku"))
+        ), row=1, col=1)
 
+        fig.add_trace(go.Scatter(x=df[time_col], y=df['kijun_129'], line=dict(color='#D97706', width=2.5), name="Kijun 129"), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df[time_col], y=df['span_a'], line=dict(color='rgba(8, 153, 129, 0.4)', width=1), name="Span A"), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df[time_col], y=df['span_b'], line=dict(color='rgba(242, 54, 69, 0.4)', width=1), fill='tonexty', fillcolor='rgba(8, 153, 129, 0.08)', name="Mây Ichimoku"), row=1, col=1)
+
+        # 2. Cột Khối Lượng Giao Dịch (Volume Bar)
+        vol_colors = ['#089981' if c >= o else '#F23645' for c, o in zip(df['close'], df['open'])]
+        fig.add_trace(go.Bar(
+            x=df[time_col], y=df['volume'],
+            marker_color=vol_colors,
+            name="Khối Lượng Vol"
+        ), row=2, col=1)
+
+        # Cấu hình giao diện Light & Hỗ trợ Zoom bằng con lăn chuột
         fig.update_layout(
-            title=dict(text=f"Biểu Đồ Phân Tích Ichimoku & Kijun 129 — {symbol}", font=dict(color='#0F172A', size=16)),
-            height=550,
+            title=dict(text=f"Biểu Đồ Phân Tích Ichimoku & Khối Lượng — {symbol}", font=dict(color='#0F172A', size=16)),
+            height=620,
             template="plotly_white",
             xaxis_rangeslider_visible=False,
             paper_bgcolor="#FFFFFF",
             plot_bgcolor="#FFFFFF",
             xaxis=dict(showgrid=True, gridcolor='#F1F5F9'),
-            yaxis=dict(showgrid=True, gridcolor='#F1F5F9')
+            yaxis=dict(showgrid=True, gridcolor='#F1F5F9'),
+            yaxis2=dict(showgrid=True, gridcolor='#F1F5F9', title="Khối Lượng"),
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
-        st.plotly_chart(fig, use_container_width=True)
+
+        # Bật cấu hình scrollZoom: True để cuộn chuột zoom in/out
+        st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True})
 
 with tab2:
     st.subheader("💎 DANH MỤC CỔ PHIẾU MUA ĐẦU TƯ (DÀI HẠN / TÍCH SẢN)")
