@@ -11,6 +11,15 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+# Thử import vnstock, nếu lỗi dùng urllib cào an toàn
+try:
+    import vnstock3 as vnstock
+except ImportError:
+    try:
+        import vnstock
+    except ImportError:
+        vnstock = None
+
 DB_NAME = "stock_data.db"
 
 def log_error(msg):
@@ -76,13 +85,43 @@ def init_db_and_seed_fast():
 
 init_db_and_seed_fast()
 
-# --- HÀM TÍNH RSI & MFI THUẦN PYTHON ---
+# --- HÀM LẤY DỮ LIỆU LỊCH SỬ AN TOÀN ---
+@st.cache_data(ttl=600, show_spinner=False)
+def get_history_safe(ticker, start, end):
+    if vnstock is None:
+        return None
+    sources = ['VCI', 'TCBS', 'DNSE']
+    for src in sources:
+        try:
+            if hasattr(vnstock, 'Vnstock'):
+                stock = vnstock.Vnstock().stock(symbol=ticker, source=src)
+                return stock.quote.history(start=start, end=end, interval='1D')
+            elif hasattr(vnstock, 'Quote'):
+                quote = vnstock.Quote(symbol=ticker, start_date=start, end_date=end, source=src)
+                return quote.history(interval='1D')
+            elif hasattr(vnstock, 'stock_historical_data'):
+                return vnstock.stock_historical_data(symbol=ticker, start_date=start, end_date=end, source=src)
+        except Exception:
+            continue
+    return None
+
+# --- CHỈ BÁO THUẦN PYTHON ---
 def calculate_rsi(series, period=14):
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
     rs = gain / loss
     return 100 - (100 / (1 + rs))
+
+def calculate_mfi(df, period=14):
+    typical_price = (df['high'] + df['low'] + df['close']) / 3
+    money_flow = typical_price * df['volume']
+    
+    positive_flow = money_flow.where(typical_price > typical_price.shift(1), 0).rolling(window=period).sum()
+    negative_flow = money_flow.where(typical_price < typical_price.shift(1), 0).rolling(window=period).sum()
+    
+    mfi_ratio = positive_flow / negative_flow
+    return 100 - (100 / (1 + mfi_ratio))
 
 def calculate_indicators(df):
     high_129 = df['high'].rolling(window=129).max()
@@ -104,7 +143,7 @@ def calculate_indicators(df):
 
     df['vol_sma20'] = df['volume'].rolling(window=20).mean()
     df['rsi'] = calculate_rsi(df['close'], period=14)
-    df['mfi'] = calculate_rsi(df['close'], period=14)
+    df['mfi'] = calculate_mfi(df, period=14)
 
     return df
 
@@ -138,6 +177,7 @@ def analyze_advanced_strategy(df, is_margin=False):
     recent_high = df['high'].tail(60).max()
     is_bounce_from_drop = (recent_high > close * 1.25) and (close > prev_close)
 
+    # 1. BÁN / CẮT LỖ
     entry_candle_low = prev['low']
     stop_loss_limit = 0.97 if is_margin else 0.95
 
@@ -156,6 +196,7 @@ def analyze_advanced_strategy(df, is_margin=False):
     if close > kijun_129 * 1.25 and (vol < vol_avg * 0.6):
         return "BÁN (SELL)", 0.83, "🎯 BÁN HẠ TỶ TRỌNG: Giá ĐẮT ĐỎ xa đường 129 + Kiệt thanh khoản đỉnh.", "TRADER_EXIT"
 
+    # 2. MUA
     is_cheap = close <= kijun_129 * 1.02
     is_dry_vol = vol <= vol_avg * 0.55
     is_smart_money = vol >= vol_avg * 1.8
@@ -195,35 +236,127 @@ def get_filtered_stocks_cached(limit_count, is_speculation=False):
         log_error(f"Loi get_filtered_stocks_cached: {e}")
         return pd.DataFrame()
 
-# --- STREAMLIT UI ---
+# --- STREAMLIT UI CONFIG (DARK MODE CHUẨN TRADER) ---
 st.set_page_config(page_title="StockAI Enterprise", layout="wide", page_icon="📈")
 
 st.markdown("""
 <style>
-    .main { background-color: #0E1117; color: #FAFAFA; }
+    .stApp { background-color: #0E1117; color: #FAFAFA; }
     .stMetric { background-color: #1E222D; padding: 15px; border-radius: 10px; border: 1px solid #2A2E39; }
     div[data-testid="stBlock"] { background-color: #131722; padding: 20px; border-radius: 12px; border: 1px solid #2A2E39; margin-bottom: 10px; }
     
-    .signal-buy { background-color: rgba(46, 125, 50, 0.25) !important; color: #2ecc71 !important; font-weight: bold; padding: 4px 8px; border-radius: 4px; border: 1px solid #2ecc71; }
-    .signal-sell { background-color: rgba(198, 40, 40, 0.25) !important; color: #e74c3c !important; font-weight: bold; padding: 4px 8px; border-radius: 4px; border: 1px solid #e74c3c; }
-    .signal-hold { background-color: rgba(243, 156, 18, 0.25) !important; color: #f1c40f !important; font-weight: bold; padding: 4px 8px; border-radius: 4px; border: 1px solid #f1c40f; }
+    .signal-buy { background-color: rgba(46, 125, 50, 0.25) !important; color: #2ecc71 !important; font-weight: bold; padding: 6px 12px; border-radius: 4px; border: 1px solid #2ecc71; }
+    .signal-sell { background-color: rgba(198, 40, 40, 0.25) !important; color: #e74c3c !important; font-weight: bold; padding: 6px 12px; border-radius: 4px; border: 1px solid #e74c3c; }
+    .signal-hold { background-color: rgba(243, 156, 18, 0.25) !important; color: #f1c40f !important; font-weight: bold; padding: 6px 12px; border-radius: 4px; border: 1px solid #f1c40f; }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("⚡ StockAI Enterprise - Terminal Phân Tích & Kỷ Luật Đầu Tư")
 st.caption("Hệ thống Trí Tuệ Nhân Tạo Quản Trị Rủi Ro & Nhận Diện Dòng Tiền Thông Minh")
 
+# SIDEBAR DÀNH CHO DASHBOARD
+st.sidebar.header("⚙️ CẤU HÌNH & QUẢN LÝ VỐN")
+symbol = st.sidebar.text_input("Mã Cổ Phiếu Phân Tích:", value="TCB").upper().strip()
+lookback = st.sidebar.slider("Lịch sử (ngày):", 150, 730, 365)
+
+st.sidebar.markdown("---")
+st.sidebar.header("💰 QUẢN LÝ DÒNG TIỀN & ĐÒN BẨY")
+capital = st.sidebar.number_input("Tổng ngân sách đầu tư (VND):", value=500000000, step=10000000, format="%d")
+use_margin = st.sidebar.checkbox("Có Sử Dụng Margin (Đòn Bẩy)?", value=False)
+risk_profile = st.sidebar.select_slider("Khẩu vị rủi ro:", options=["An toàn", "Cân bằng", "Mạo hiểm"])
+
 tab1, tab2, tab3 = st.tabs(["📊 DASHBOARD PHÂN TÍCH MÃ", "💎 TOP CỔ PHIẾU MUA ĐẦU TƯ", "🔥 TOP CỔ PHIẾU MUA ĐẦU CƠ"])
 
+# TAB 1: DASHBOARD HOÀN CHỈNH
 with tab1:
-    st.info("💡 Bạn đang truy cập ứng dụng StockAI trên Cloud miễn phí. Dữ liệu Top Cổ Phiếu được tự động học và quét ngầm định kỳ hàng ngày.")
+    start_date = (datetime.now() - timedelta(days=lookback)).strftime("%Y-%m-%d")
+    end_date = datetime.now().strftime("%Y-%m-%d")
 
+    with st.spinner(f"Đang phân tích kỹ thuật Ichimoku 129 & Dòng tiền cho mã {symbol}..."):
+        df = get_history_safe(symbol, start_date, end_date)
+
+    if df is not None and not df.empty:
+        df.columns = [c.lower() for c in df.columns]
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        df = calculate_indicators(df)
+        ai_signal, confidence, reasoning, _ = analyze_advanced_strategy(df, is_margin=use_margin)
+        latest = df.iloc[-1]
+        price = latest['close']
+        display_price_str = f"{price:,.2f}" if price < 1000 else f"{price:,.0f}"
+
+        # METRICS TRÊN DASHBOARD
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Giá Khớp Lệnh", display_price_str)
+        m2.metric("RSI / MFI (14)", f"{latest['rsi']:.1f} / {latest['mfi']:.1f}" if pd.notnull(latest['mfi']) else "N/A")
+        
+        if "MUA" in ai_signal:
+            m3.markdown(f"**Khuyến Nghị AI:** <span class='signal-buy'>{ai_signal}</span>", unsafe_allow_html=True)
+        elif "BÁN" in ai_signal:
+            m3.markdown(f"**Khuyến Nghị AI:** <span class='signal-sell'>{ai_signal}</span>", unsafe_allow_html=True)
+        else:
+            m3.markdown(f"**Khuyến Nghị AI:** <span class='signal-hold'>{ai_signal}</span>", unsafe_allow_html=True)
+
+        m4.metric("Độ Tin Cậy AI", f"{confidence*100:.1f}%")
+
+        # THÔNG BÁO TÍN HIỆU
+        if "BÁN" in ai_signal:
+            st.error(f"🚨 **PHÂN TÍCH TÍN HIỆU RA (BÁN/CẮT LỖ):** {reasoning}")
+        elif "MUA" in ai_signal:
+            st.success(f"🎯 **PHÂN TÍCH TÍN HIỆU VÀO (MUA):** {reasoning}")
+        else:
+            st.warning(f"💡 **PHÂN TÍCH QUAN SÁT:** {reasoning}")
+
+        # QUẢN LÝ VỐN
+        st.subheader("💡 Khuyến Nghị Đi Tiền & Phân Bổ Vốn")
+        alloc_pct = 0.0
+        if "MUA" in ai_signal:
+            alloc_pct = 0.20 if risk_profile == "An toàn" else (0.35 if risk_profile == "Cân bằng" else 0.50)
+        elif "BÁN" in ai_signal:
+            alloc_pct = 0.0
+        else:
+            alloc_pct = 0.10
+
+        target_amount = capital * alloc_pct
+        actual_buy_price = price * 1000 if price < 1000 else price
+        max_shares = int(target_amount / actual_buy_price) if actual_buy_price > 0 else 0
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Tỷ Lệ Giải Ngân Tối Đa", f"{alloc_pct*100:.0f}% Tổng Vốn")
+        c2.metric("Số Tiền Khuyến Nghị Đi Lệnh", f"{target_amount:,.0f} VND")
+        c3.metric("Số Lượng Cổ Phiếu Nên Mua", f"{max_shares:,} CP")
+
+        # BIỂU ĐỒ NẾN ICHIMOKU & KIJUN 129
+        time_col = "time" if "time" in df.columns else ("date" if "date" in df.columns else df.columns[0])
+        fig = go.Figure()
+        
+        fig.add_trace(go.Candlestick(x=df[time_col], open=df['open'], high=df['high'], low=df['low'], close=df['close'], name="Nến Giá"))
+        fig.add_trace(go.Scatter(x=df[time_col], y=df['kijun_129'], line=dict(color='#FFD700', width=3.5), name="Kijun 129 (Trục Định Giá Dài Hạn)"))
+        fig.add_trace(go.Scatter(x=df[time_col], y=df['span_a'], line=dict(color='rgba(0, 255, 150, 0.5)', width=1), name="Span A"))
+        fig.add_trace(go.Scatter(x=df[time_col], y=df['span_b'], line=dict(color='rgba(255, 50, 50, 0.5)', width=1), fill='tonexty', fillcolor='rgba(0, 230, 118, 0.12)', name="Mây Ichimoku"))
+
+        fig.update_layout(
+            title=f"Biểu Đồ Kỹ Thuật Ichimoku & Kijun 129 - {symbol}",
+            height=550,
+            template="plotly_dark",
+            xaxis_rangeslider_visible=False,
+            paper_bgcolor="#131722",
+            plot_bgcolor="#131722"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning(f"Chưa có kết nối cào dữ liệu trực tiếp cho mã '{symbol}'. Bạn vẫn có thể xem danh mục Top Cổ Phiếu được AI tự động quét ở Tab 2 và Tab 3 phía trên!")
+
+# TAB 2: TOP CỔ PHIẾU ĐẦU TƯ
 with tab2:
     st.subheader("💎 DANH MỤC CỔ PHIẾU MUA ĐẦU TƯ (DÀI HẠN / TÍCH SẢN)")
     count_inv = st.radio("Số lượng mã hiển thị:", [5, 10, 15, 20], index=1, horizontal=True, key="inv_count")
     df_inv = get_filtered_stocks_cached(count_inv, is_speculation=False)
     st.dataframe(df_inv, use_container_width=True, hide_index=True)
 
+# TAB 3: TOP CỔ PHIẾU ĐẦU CƠ
 with tab3:
     st.subheader("🔥 DANH MỤC CỔ PHIẾU MUA ĐẦU CƠ (NGẮN HẠN / LƯỚT SÓNG CÁ MẬP)")
     count_spec = st.radio("Số lượng mã hiển thị:", [5, 10, 15, 20], index=1, horizontal=True, key="spec_count")
