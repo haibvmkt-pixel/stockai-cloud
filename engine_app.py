@@ -12,21 +12,25 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
-# Import vnstock lấy dữ liệu thật từ sàn
+# Thử import các phiên bản vnstock khác nhau
+vnstock_lib = None
 try:
-    import vnstock3 as vnstock
-except ImportError:
+    import vnstock3 as vnstock_lib
+except Exception:
     try:
-        import vnstock
-    except ImportError:
-        vnstock = None
+        import vnstock as vnstock_lib
+    except Exception:
+        vnstock_lib = None
 
 DB_NAME = "stock_data.db"
 
 def log_error(msg):
-    log_path = os.path.join(os.getcwd(), "error_log.txt")
-    with open(log_path, "a", encoding="utf-8") as f:
-        f.write(f"[{datetime.now().strftime('%d/%m/%Y %H:%M:%S')}] {msg}\n")
+    try:
+        log_path = os.path.join(os.getcwd(), "error_log.txt")
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now().strftime('%d/%m/%Y %H:%M:%S')}] {msg}\n")
+    except Exception:
+        pass
 
 def get_db_connection():
     conn = sqlite3.connect(DB_NAME, timeout=60.0)
@@ -61,30 +65,32 @@ def init_db():
 
 init_db()
 
-# --- HÀM CÀO DỮ LIỆU THẬT 100% TỪ SÀN CHỨNG KHOÁN ---
+# --- HÀM CÀO DỮ LIỆU THẬT AN TOÀN CHỐNG LỖI ---
 @st.cache_data(ttl=300, show_spinner=False)
 def get_real_market_data(ticker, start_date, end_date):
-    if vnstock is None:
+    if vnstock_lib is None:
         return None
     
-    sources = ['VCI', 'TCBS', 'DNSE']
+    sources = ['TCBS', 'VCI', 'DNSE']
     for src in sources:
         try:
-            if hasattr(vnstock, 'Vnstock'):
-                stock = vnstock.Vnstock().stock(symbol=ticker, source=src)
+            df = None
+            if hasattr(vnstock_lib, 'Vnstock'):
+                stock = vnstock_lib.Vnstock().stock(symbol=ticker, source=src)
                 df = stock.quote.history(start=start_date, end=end_date, interval='1D')
-            elif hasattr(vnstock, 'Quote'):
-                quote = vnstock.Quote(symbol=ticker, start_date=start_date, end_date=end_date, source=src)
+            elif hasattr(vnstock_lib, 'Quote'):
+                quote = vnstock_lib.Quote(symbol=ticker, start_date=start_date, end_date=end_date, source=src)
                 df = quote.history(interval='1D')
-            elif hasattr(vnstock, 'stock_historical_data'):
-                df = vnstock.stock_historical_data(symbol=ticker, start_date=start_date, end_date=end_date, source=src)
+            elif hasattr(vnstock_lib, 'stock_historical_data'):
+                df = vnstock_lib.stock_historical_data(symbol=ticker, start_date=start_date, end_date=end_date, source=src)
             
-            if df is not None and not df.empty:
-                df.columns = [c.lower() for c in df.columns]
+            if df is not None and not df.empty and len(df) > 10:
+                df.columns = [str(c).lower() for c in df.columns]
                 time_col = "time" if "time" in df.columns else ("date" if "date" in df.columns else df.columns[0])
                 df['formatted_date'] = pd.to_datetime(df[time_col]).dt.strftime('%d/%m/%Y')
                 return df
-        except Exception:
+        except Exception as e:
+            log_error(f"Loi cao tu nguon {src} cho ma {ticker}: {e}")
             continue
     return None
 
@@ -251,11 +257,10 @@ capital = st.sidebar.number_input("Tổng ngân sách đầu tư (VND):", value=
 use_margin = st.sidebar.checkbox("Có Sử Dụng Margin (Đòn Bẩy)?", value=False)
 risk_profile = st.sidebar.select_slider("Khẩu vị rủi ro:", options=["An toàn", "Cân bằng", "Mạo hiểm"])
 
-# --- LẤY DỮ LIỆU THẬT TỪ SÀN CHỨNG KHOÁN ---
 start_date = (datetime.now() - timedelta(days=lookback)).strftime("%Y-%m-%d")
 end_date = datetime.now().strftime("%Y-%m-%d")
 
-with st.spinner(f"Đang kết nối dữ liệu thật từ sàn cho mã {symbol}..."):
+with st.spinner(f"Đang tải dữ liệu thực tế cho mã {symbol}..."):
     df = get_real_market_data(symbol, start_date, end_date)
 
 if df is not None and not df.empty:
@@ -269,7 +274,6 @@ if df is not None and not df.empty:
     price = latest['close']
     display_price_str = f"{price:,.2f}" if price < 1000 else f"{price:,.2f}"
 
-    # BIỂU ĐỒ NẾN + KHỐI LƯỢNG THẬT 100%
     fig = make_subplots(
         rows=2, cols=1, 
         shared_xaxes=True, 
@@ -310,9 +314,8 @@ if df is not None and not df.empty:
 
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True})
 else:
-    st.error(f"❌ Không thể tải dữ liệu thật cho mã '{symbol}'. Vui lòng kiểm tra lại mã cổ phiếu hoặc kết nối mạng.")
+    st.warning(f"⚠️ Đang kết nối dữ liệu máy chủ cho mã '{symbol}'. Nếu báo lỗi, bạn hãy thử kiểm tra lại mã cổ phiếu hoặc đổi nguồn mạng.")
 
-# --- HỆ THỐNG TAB NẰM DƯỚI BIỂU ĐỒ ---
 tab1, tab2, tab3 = st.tabs(["📊 CHI TIẾT TÍN HIỆU & ĐI TIỀN", "💎 TOP CỔ PHIẾU MUA ĐẦU TƯ", "🔥 TOP CỔ PHIẾU MUA ĐẦU CƠ"])
 
 with tab1:
