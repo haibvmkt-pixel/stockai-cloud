@@ -12,6 +12,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
+# Import vnstock lấy dữ liệu thật từ sàn
 try:
     import vnstock3 as vnstock
 except ImportError:
@@ -33,8 +34,7 @@ def get_db_connection():
     conn.execute("PRAGMA busy_timeout=10000;")
     return conn
 
-# --- KHỞI TẠO CSDL & DỮ LIỆU CHUẨN VIỆT NAM ---
-def init_db_and_seed_fast():
+def init_db():
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -56,98 +56,37 @@ def init_db_and_seed_fast():
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_symbol_date ON stock_signals (symbol, date);")
             conn.commit()
-
-            count = cursor.execute("SELECT COUNT(*) FROM stock_signals").fetchone()[0]
-            if count == 0:
-                today_vn = datetime.now().strftime("%d/%m/%Y")
-                sample_data = [
-                    ('TCB', today_vn, 24.50, 42.5, 45.0, 'INVESTMENT', 'MUA (BUY)', 0.95, 'REVIEWED', 1),
-                    ('FPT', today_vn, 132.00, 44.0, 52.0, 'INVESTMENT', 'MUA (BUY)', 0.92, 'REVIEWED', 1),
-                    ('HPG', today_vn, 27.10, 41.2, 48.0, 'INVESTMENT', 'MUA (BUY)', 0.89, 'REVIEWED', 1),
-                    ('MBB', today_vn, 23.80, 43.8, 41.0, 'INVESTMENT', 'MUA (BUY)', 0.88, 'REVIEWED', 1),
-                    ('STB', today_vn, 29.80, 39.5, 38.0, 'SPECULATION', 'MUA (BUY)', 0.92, 'REVIEWED', 1),
-                    ('SSI', today_vn, 26.40, 46.3, 55.0, 'SPECULATION', 'MUA (BUY)', 0.86, 'REVIEWED', 0),
-                    ('MWG', today_vn, 68.20, 40.5, 42.0, 'INVESTMENT', 'MUA (BUY)', 0.85, 'REVIEWED', 1),
-                    ('VCB', today_vn, 91.50, 52.1, 50.0, 'INVESTMENT', 'THEO DÕI', 0.60, 'PENDING', 0),
-                    ('MSN', today_vn, 74.50, 58.0, 61.0, 'INVESTMENT', 'THEO DÕI', 0.58, 'PENDING', 0),
-                    ('VNM', today_vn, 66.80, 49.2, 48.0, 'INVESTMENT', 'THEO DÕI', 0.55, 'PENDING', 0),
-                    ('VIC', today_vn, 42.10, 65.0, 68.0, 'INVESTMENT', 'BÁN (SELL)', 0.85, 'REVIEWED', 1),
-                    ('VHM', today_vn, 39.80, 71.2, 76.0, 'INVESTMENT', 'BÁN (SELL)', 0.90, 'REVIEWED', 1)
-                ]
-                cursor.executemany("""
-                    INSERT OR REPLACE INTO stock_signals 
-                    (symbol, date, close, rsi, mfi, strategy_type, ai_recommendation, ai_confidence, status, accuracy_score)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, sample_data)
-                conn.commit()
     except Exception as e:
-        log_error(f"Loi init_db_and_seed_fast: {e}")
+        log_error(f"Loi init_db: {e}")
 
-init_db_and_seed_fast()
+init_db()
 
-# --- TRẠNG THÁI AI HỌC CHI TIẾT ---
-def get_ai_learning_status():
-    try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            total_records = cursor.execute("SELECT COUNT(*) FROM stock_signals").fetchone()[0]
-            reviewed = cursor.execute("SELECT COUNT(*) FROM stock_signals WHERE status = 'REVIEWED'").fetchone()[0]
-            pending = cursor.execute("SELECT COUNT(*) FROM stock_signals WHERE status = 'PENDING'").fetchone()[0]
-            winrate = cursor.execute("SELECT ROUND(AVG(accuracy_score) * 100, 1) FROM stock_signals WHERE status = 'REVIEWED'").fetchone()[0]
-            
-            winrate_str = f"{winrate}%" if winrate is not None else "Đang phân tích..."
-            
-            # Kiểm tra trạng thái bài học
-            if pending == 0 and total_records > 0:
-                status_text = "🟢 HOÀN THÀNH BÀI HỌC"
-                status_desc = "AI đã kiểm chứng 100% dữ liệu thị trường mới nhất."
-            else:
-                status_text = "🟡 ĐANG TRONG TIẾN TRÌNH HỌC"
-                status_desc = f"AI đang học & tự đối chiếu {pending} mẫu dữ liệu..."
-
-            return total_records, reviewed, winrate_str, status_text, status_desc
-    except Exception as e:
-        log_error(f"Loi get_ai_learning_status: {e}")
-        return 0, 0, "N/A", "🔴 CHƯA CÓ DỮ LIỆU", "Vui lòng đợi hệ thống cập nhật."
-
-def generate_mock_df(symbol, days=365):
-    dates = [datetime.now() - timedelta(days=i) for i in range(days)][::-1]
-    np.random.seed(hash(symbol) % 10000)
-    base_price = 25.0 if symbol == 'SSI' else (100.0 if symbol == 'FPT' else 30.0)
-    returns = np.random.normal(0.0005, 0.02, days)
-    prices = base_price * np.exp(np.cumsum(returns))
+# --- HÀM CÀO DỮ LIỆU THẬT 100% TỪ SÀN CHỨNG KHOÁN ---
+@st.cache_data(ttl=300, show_spinner=False)
+def get_real_market_data(ticker, start_date, end_date):
+    if vnstock is None:
+        return None
     
-    df = pd.DataFrame({
-        'time': [d.strftime('%d/%m/%Y') for d in dates], # Định dạng Việt Nam DD/MM/YYYY
-        'open': prices * (1 + np.random.uniform(-0.01, 0.01, days)),
-        'high': prices * (1 + np.random.uniform(0.005, 0.025, days)),
-        'low': prices * (1 - np.random.uniform(0.005, 0.025, days)),
-        'close': prices,
-        'volume': np.random.randint(1000000, 10000000, days)
-    })
-    return df
-
-@st.cache_data(ttl=600, show_spinner=False)
-def get_history_smart(ticker, start, end):
-    if vnstock is not None:
-        sources = ['VCI', 'TCBS', 'DNSE']
-        for src in sources:
-            try:
-                if hasattr(vnstock, 'Vnstock'):
-                    stock = vnstock.Vnstock().stock(symbol=ticker, source=src)
-                    df = stock.quote.history(start=start, end=end, interval='1D')
-                elif hasattr(vnstock, 'Quote'):
-                    quote = vnstock.Quote(symbol=ticker, start_date=start, end_date=end, source=src)
-                    df = quote.history(interval='1D')
-                elif hasattr(vnstock, 'stock_historical_data'):
-                    df = vnstock.stock_historical_data(symbol=ticker, start_date=start, end_date=end, source=src)
-                if df is not None and not df.empty:
-                    time_col = "time" if "time" in df.columns else ("date" if "date" in df.columns else df.columns[0])
-                    df[time_col] = pd.to_datetime(df[time_col]).dt.strftime('%d/%m/%Y')
-                    return df
-            except Exception:
-                continue
-    return generate_mock_df(ticker)
+    sources = ['VCI', 'TCBS', 'DNSE']
+    for src in sources:
+        try:
+            if hasattr(vnstock, 'Vnstock'):
+                stock = vnstock.Vnstock().stock(symbol=ticker, source=src)
+                df = stock.quote.history(start=start_date, end=end_date, interval='1D')
+            elif hasattr(vnstock, 'Quote'):
+                quote = vnstock.Quote(symbol=ticker, start_date=start_date, end_date=end_date, source=src)
+                df = quote.history(interval='1D')
+            elif hasattr(vnstock, 'stock_historical_data'):
+                df = vnstock.stock_historical_data(symbol=ticker, start_date=start_date, end_date=end_date, source=src)
+            
+            if df is not None and not df.empty:
+                df.columns = [c.lower() for c in df.columns]
+                time_col = "time" if "time" in df.columns else ("date" if "date" in df.columns else df.columns[0])
+                df['formatted_date'] = pd.to_datetime(df[time_col]).dt.strftime('%d/%m/%Y')
+                return df
+        except Exception:
+            continue
+    return None
 
 def calculate_rsi(series, period=14):
     delta = series.diff()
@@ -272,13 +211,12 @@ def get_filtered_stocks_cached(limit_count, is_speculation=False):
                 ORDER BY ai_confidence DESC, id DESC
                 LIMIT ?
             """
-            df_res = pd.read_sql_query(query, conn, params=(int(limit_count),))
-            return df_res
+            return pd.read_sql_query(query, conn, params=(int(limit_count),))
     except Exception as e:
         log_error(f"Loi get_filtered_stocks_cached: {e}")
         return pd.DataFrame()
 
-# --- STREAMLIT UI CONFIG LIGHT MODE ---
+# --- CONFIG LIGHT MODE ---
 st.set_page_config(page_title="StockAI Enterprise", layout="wide", page_icon="📈")
 
 st.markdown("""
@@ -302,18 +240,9 @@ st.markdown("""
 st.title("📈 StockAI Enterprise — Terminal Phân Tích & Kỷ Luật Đầu Tư")
 st.caption("Hệ thống Trí Tuệ Nhân Tạo Quản Trị Rủi Ro & Nhận Diện Dòng Tiền Phân Hạng Định Giá")
 
-# SIDEBAR BÁO TRẠNG THÁI AI
-st.sidebar.header("🧠 TRẠNG THÁI BOT & AI TỰ HỌC")
-tot_rec, rev_rec, win_rate, st_text, st_desc = get_ai_learning_status()
-
-st.sidebar.markdown(f"**{st_text}**")
-st.sidebar.caption(st_desc)
-st.sidebar.metric("Tỉ Lệ AI DỰ ĐOÁN ĐÚNG (Winrate)", win_rate)
-st.sidebar.caption(f"• Dữ liệu đã học: **{rev_rec}** / {tot_rec} mẫu phiên")
-
-st.sidebar.markdown("---")
+# SIDEBAR
 st.sidebar.header("⚙️ CẤU HÌNH & QUẢN LÝ VỐN")
-symbol = st.sidebar.text_input("Mã Cổ Phiếu Phân Tích Biểu Đồ:", value="SSI").upper().strip()
+symbol = st.sidebar.text_input("Mã Cổ Phiếu Phân Tích Biểu Đồ:", value="EIB").upper().strip()
 lookback = st.sidebar.slider("Lịch sử (ngày):", 150, 730, 365)
 
 st.sidebar.markdown("---")
@@ -322,14 +251,14 @@ capital = st.sidebar.number_input("Tổng ngân sách đầu tư (VND):", value=
 use_margin = st.sidebar.checkbox("Có Sử Dụng Margin (Đòn Bẩy)?", value=False)
 risk_profile = st.sidebar.select_slider("Khẩu vị rủi ro:", options=["An toàn", "Cân bằng", "Mạo hiểm"])
 
-# --- VẼ BIỂU ĐỒ CỐ ĐỊNH CHUNG (KHÔNG BỊ MẤT KHỦY KHI CHUYỂN TAB) ---
+# --- LẤY DỮ LIỆU THẬT TỪ SÀN CHỨNG KHOÁN ---
 start_date = (datetime.now() - timedelta(days=lookback)).strftime("%Y-%m-%d")
 end_date = datetime.now().strftime("%Y-%m-%d")
 
-df = get_history_smart(symbol, start_date, end_date)
+with st.spinner(f"Đang kết nối dữ liệu thật từ sàn cho mã {symbol}..."):
+    df = get_real_market_data(symbol, start_date, end_date)
 
 if df is not None and not df.empty:
-    df.columns = [c.lower() for c in df.columns]
     for col in ['open', 'high', 'low', 'close', 'volume']:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -338,11 +267,9 @@ if df is not None and not df.empty:
     ai_signal, confidence, reasoning, _ = analyze_advanced_strategy(df, is_margin=use_margin)
     latest = df.iloc[-1]
     price = latest['close']
-    display_price_str = f"{price:,.2f}" if price < 1000 else f"{price:,.0f}"
+    display_price_str = f"{price:,.2f}" if price < 1000 else f"{price:,.2f}"
 
-    # BIỂU ĐỒ NẾN + KHỐI LƯỢNG NẰM CỐ ĐỊNH TRÊN CÙNG
-    time_col = "time" if "time" in df.columns else ("date" if "date" in df.columns else df.columns[0])
-    
+    # BIỂU ĐỒ NẾN + KHỐI LƯỢNG THẬT 100%
     fig = make_subplots(
         rows=2, cols=1, 
         shared_xaxes=True, 
@@ -351,18 +278,18 @@ if df is not None and not df.empty:
     )
 
     fig.add_trace(go.Candlestick(
-        x=df[time_col], open=df['open'], high=df['high'], low=df['low'], close=df['close'],
+        x=df['formatted_date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'],
         increasing_line_color='#089981', decreasing_line_color='#F23645',
         name="Nến Giá"
     ), row=1, col=1)
 
-    fig.add_trace(go.Scatter(x=df[time_col], y=df['kijun_129'], line=dict(color='#D97706', width=2.5), name="Kijun 129"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df[time_col], y=df['span_a'], line=dict(color='rgba(8, 153, 129, 0.4)', width=1), name="Span A"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df[time_col], y=df['span_b'], line=dict(color='rgba(242, 54, 69, 0.4)', width=1), fill='tonexty', fillcolor='rgba(8, 153, 129, 0.08)', name="Mây Ichimoku"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df['formatted_date'], y=df['kijun_129'], line=dict(color='#D97706', width=2.5), name="Kijun 129"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df['formatted_date'], y=df['span_a'], line=dict(color='rgba(8, 153, 129, 0.4)', width=1), name="Span A"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df['formatted_date'], y=df['span_b'], line=dict(color='rgba(242, 54, 69, 0.4)', width=1), fill='tonexty', fillcolor='rgba(8, 153, 129, 0.08)', name="Mây Ichimoku"), row=1, col=1)
 
     vol_colors = ['#089981' if c >= o else '#F23645' for c, o in zip(df['close'], df['open'])]
     fig.add_trace(go.Bar(
-        x=df[time_col], y=df['volume'],
+        x=df['formatted_date'], y=df['volume'],
         marker_color=vol_colors,
         name="Khối Lượng Vol"
     ), row=2, col=1)
@@ -382,48 +309,51 @@ if df is not None and not df.empty:
     )
 
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True})
+else:
+    st.error(f"❌ Không thể tải dữ liệu thật cho mã '{symbol}'. Vui lòng kiểm tra lại mã cổ phiếu hoặc kết nối mạng.")
 
-# --- HỆ THỐNG TAB NẰM PHÍA DƯỚI BIỂU ĐỒ ---
+# --- HỆ THỐNG TAB NẰM DƯỚI BIỂU ĐỒ ---
 tab1, tab2, tab3 = st.tabs(["📊 CHI TIẾT TÍN HIỆU & ĐI TIỀN", "💎 TOP CỔ PHIẾU MUA ĐẦU TƯ", "🔥 TOP CỔ PHIẾU MUA ĐẦU CƠ"])
 
 with tab1:
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Giá Khớp Lệnh", display_price_str)
-    m2.metric("Chỉ Số RSI / MFI (14)", f"{latest['rsi']:.1f} / {latest['mfi']:.1f}" if pd.notnull(latest['mfi']) else "N/A")
-    
-    if "MUA" in ai_signal:
-        m3.markdown(f"**Khuyến Nghị AI:** <span class='signal-buy'>{ai_signal}</span>", unsafe_allow_html=True)
-    elif "BÁN" in ai_signal:
-        m3.markdown(f"**Khuyến Nghị AI:** <span class='signal-sell'>{ai_signal}</span>", unsafe_allow_html=True)
-    else:
-        m3.markdown(f"**Khuyến Nghị AI:** <span class='signal-hold'>{ai_signal}</span>", unsafe_allow_html=True)
+    if df is not None and not df.empty:
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Giá Khớp Lệnh", display_price_str)
+        m2.metric("Chỉ Số RSI / MFI (14)", f"{latest['rsi']:.1f} / {latest['mfi']:.1f}" if pd.notnull(latest['mfi']) else "N/A")
+        
+        if "MUA" in ai_signal:
+            m3.markdown(f"**Khuyến Nghị AI:** <span class='signal-buy'>{ai_signal}</span>", unsafe_allow_html=True)
+        elif "BÁN" in ai_signal:
+            m3.markdown(f"**Khuyến Nghị AI:** <span class='signal-sell'>{ai_signal}</span>", unsafe_allow_html=True)
+        else:
+            m3.markdown(f"**Khuyến Nghị AI:** <span class='signal-hold'>{ai_signal}</span>", unsafe_allow_html=True)
 
-    m4.metric("Độ Tin Cậy AI", f"{confidence*100:.1f}%")
+        m4.metric("Độ Tin Cậy AI", f"{confidence*100:.1f}%")
 
-    if "BÁN" in ai_signal:
-        st.error(f"🚨 **PHÂN TÍCH TÍN HIỆU RA (BÁN/CẮT LỖ):** {reasoning}")
-    elif "MUA" in ai_signal:
-        st.success(f"🎯 **PHÂN TÍCH TÍN HIỆU VÀO (MUA):** {reasoning}")
-    else:
-        st.warning(f"💡 **PHÂN TÍCH QUAN SÁT:** {reasoning}")
+        if "BÁN" in ai_signal:
+            st.error(f"🚨 **PHÂN TÍCH TÍN HIỆU RA (BÁN/CẮT LỖ):** {reasoning}")
+        elif "MUA" in ai_signal:
+            st.success(f"🎯 **PHÂN TÍCH TÍN HIỆU VÀO (MUA):** {reasoning}")
+        else:
+            st.warning(f"💡 **PHÂN TÍCH QUAN SÁT:** {reasoning}")
 
-    st.subheader("💡 Khuyến Nghị Đi Tiền & Phân Bổ Vốn")
-    alloc_pct = 0.0
-    if "MUA" in ai_signal:
-        alloc_pct = 0.20 if risk_profile == "An toàn" else (0.35 if risk_profile == "Cân bằng" else 0.50)
-    elif "BÁN" in ai_signal:
+        st.subheader("💡 Khuyến Nghị Đi Tiền & Phân Bổ Vốn")
         alloc_pct = 0.0
-    else:
-        alloc_pct = 0.10
+        if "MUA" in ai_signal:
+            alloc_pct = 0.20 if risk_profile == "An toàn" else (0.35 if risk_profile == "Cân bằng" else 0.50)
+        elif "BÁN" in ai_signal:
+            alloc_pct = 0.0
+        else:
+            alloc_pct = 0.10
 
-    target_amount = capital * alloc_pct
-    actual_buy_price = price * 1000 if price < 1000 else price
-    max_shares = int(target_amount / actual_buy_price) if actual_buy_price > 0 else 0
+        target_amount = capital * alloc_pct
+        actual_buy_price = price * 1000 if price < 1000 else price
+        max_shares = int(target_amount / actual_buy_price) if actual_buy_price > 0 else 0
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Tỷ Lệ Giải Ngân Tối Đa", f"{alloc_pct*100:.0f}% Tổng Vốn")
-    c2.metric("Số Tiền Khuyến Nghị Đi Lệnh", f"{target_amount:,.0f} VND")
-    c3.metric("Số Lượng Cổ Phiếu Nên Mua", f"{max_shares:,} CP")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Tỷ Lệ Giải Ngân Tối Đa", f"{alloc_pct*100:.0f}% Tổng Vốn")
+        c2.metric("Số Tiền Khuyến Nghị Đi Lệnh", f"{target_amount:,.0f} VND")
+        c3.metric("Số Lượng Cổ Phiếu Nên Mua", f"{max_shares:,} CP")
 
 with tab2:
     st.subheader("💎 DANH MỤC CỔ PHIẾU MUA ĐẦU TƯ (DÀI HẠN / TÍCH SẢN)")
