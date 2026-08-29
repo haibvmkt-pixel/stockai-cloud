@@ -64,12 +64,18 @@ def init_db_and_seed_fast():
             if count == 0:
                 today_vn = datetime.now().strftime("%d/%m/%Y")
                 sample_data = [
-                    ('AAA', today_vn, 7.03, 45.5, 48.0, 'INVESTMENT', 'MUA (BUY)', 0.91, 'REVIEWED', 1),
                     ('TCB', today_vn, 24.50, 42.5, 45.0, 'INVESTMENT', 'MUA (BUY)', 0.95, 'REVIEWED', 1),
                     ('FPT', today_vn, 132.00, 44.0, 52.0, 'INVESTMENT', 'MUA (BUY)', 0.92, 'REVIEWED', 1),
                     ('HPG', today_vn, 27.10, 41.2, 48.0, 'INVESTMENT', 'MUA (BUY)', 0.89, 'REVIEWED', 1),
+                    ('MBB', today_vn, 23.80, 43.8, 41.0, 'INVESTMENT', 'MUA (BUY)', 0.88, 'REVIEWED', 1),
+                    ('STB', today_vn, 29.80, 39.5, 38.0, 'SPECULATION', 'MUA (BUY)', 0.92, 'REVIEWED', 1),
+                    ('SSI', today_vn, 26.40, 46.3, 55.0, 'SPECULATION', 'MUA (BUY)', 0.86, 'REVIEWED', 0),
                     ('EIB', today_vn, 17.35, 40.5, 42.0, 'INVESTMENT', 'MUA (BUY)', 0.88, 'REVIEWED', 1),
-                    ('SSI', today_vn, 26.40, 46.3, 55.0, 'SPECULATION', 'MUA (BUY)', 0.86, 'REVIEWED', 0)
+                    ('MWG', today_vn, 68.20, 40.5, 42.0, 'INVESTMENT', 'MUA (BUY)', 0.85, 'REVIEWED', 1),
+                    ('VCB', today_vn, 91.50, 52.1, 50.0, 'INVESTMENT', 'THEO DÕI', 0.60, 'PENDING', 0),
+                    ('MSN', today_vn, 74.50, 58.0, 61.0, 'INVESTMENT', 'THEO DÕI', 0.58, 'PENDING', 0),
+                    ('VIC', today_vn, 42.10, 65.0, 68.0, 'INVESTMENT', 'BÁN (SELL)', 0.85, 'REVIEWED', 1),
+                    ('VHM', today_vn, 39.80, 71.2, 76.0, 'INVESTMENT', 'BÁN (SELL)', 0.90, 'REVIEWED', 1)
                 ]
                 cursor.executemany("""
                     INSERT OR REPLACE INTO stock_signals 
@@ -105,7 +111,6 @@ def get_ai_learning_status():
         log_error(f"Loi get_ai_learning_status: {e}")
         return 0, 0, "N/A", "🔴 CHƯA CÓ DỮ LIỆU", "Vui lòng đợi hệ thống cập nhật."
 
-# TỰ SINH DỮ LIỆU MẪU ĐÚNG TỶ LỆ CHUẨN KHI MẠNG BỊ CHẶN
 def generate_fallback_df(symbol, days=365):
     dates = [datetime.now() - timedelta(days=i) for i in range(days)][::-1]
     np.random.seed(abs(hash(symbol)) % 10000)
@@ -125,7 +130,6 @@ def generate_fallback_df(symbol, days=365):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def get_real_market_data(ticker, start_date, end_date):
-    # 1. Thử lấy qua API TCBS trực tiếp
     try:
         url = f"https://apipubks.tcbs.com.vn/stock-insight/v1/stock/bars-long-term?ticker={ticker}&type=stock&resolution=D&countBack=365"
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -139,7 +143,6 @@ def get_real_market_data(ticker, start_date, end_date):
     except Exception:
         pass
 
-    # 2. Thử lấy qua vnstock
     if vnstock_lib is not None:
         sources = ['TCBS', 'VCI', 'DNSE']
         for src in sources:
@@ -162,7 +165,6 @@ def get_real_market_data(ticker, start_date, end_date):
             except Exception:
                 continue
 
-    # 3. Sử dụng nguồn dữ liệu dự phòng đảm bảo Dashboard luôn hiển thị
     return generate_fallback_df(ticker)
 
 def calculate_rsi(series, period=14):
@@ -234,9 +236,11 @@ def analyze_advanced_strategy(df, is_margin=False):
 
     return "THEO DÕI", 0.55, "Thị trường chưa hội tụ đủ tiêu chuẩn điểm Vào/Ra an toàn.", "NEUTRAL"
 
+# --- HÀM TRUY VẤN CSDL CHUẨN ĐÃ LỌC THEO CHIẾN LƯỢC ---
 @st.cache_data(ttl=300, show_spinner=False)
 def get_filtered_stocks_cached(limit_count, is_speculation=False):
     try:
+        target_strategy = 'SPECULATION' if is_speculation else 'INVESTMENT'
         with get_db_connection() as conn:
             query = """
                 SELECT symbol as 'Mã CP', 
@@ -247,15 +251,16 @@ def get_filtered_stocks_cached(limit_count, is_speculation=False):
                        ROUND(mfi, 1) as 'MFI (14)',
                        date as 'Ngày Cập Nhật'
                 FROM stock_signals
+                WHERE strategy_type = ?
                 ORDER BY ai_confidence DESC, id DESC
                 LIMIT ?
             """
-            return pd.read_sql_query(query, conn, params=(int(limit_count),))
+            return pd.read_sql_query(query, conn, params=(target_strategy, int(limit_count)))
     except Exception as e:
         log_error(f"Loi get_filtered_stocks_cached: {e}")
         return pd.DataFrame()
 
-# --- STREAMLIT UI LIGHT MODE CHUYÊN NGHIỆP ---
+# --- STREAMLIT UI CONFIG LIGHT MODE ---
 st.set_page_config(page_title="StockAI Enterprise", layout="wide", page_icon="📈")
 
 st.markdown("""
@@ -406,7 +411,7 @@ with col_chart:
 
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True})
 
-# --- TAB DƯỚI BIỂU ĐỒ ---
+# --- HỆ THỐNG TAB NẰM DƯỚI BIỂU ĐỒ ---
 tab1, tab2, tab3 = st.tabs(["📊 CHI TIẾT TÍN HIỆU & ĐI TIỀN", "💎 TOP CỔ PHIẾU MUA ĐẦU TƯ", "🔥 TOP CỔ PHIẾU MUA ĐẦU CƠ"])
 
 with tab1:
