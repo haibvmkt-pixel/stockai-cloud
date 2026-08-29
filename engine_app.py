@@ -237,51 +237,51 @@ def get_filtered_stocks_cached(limit_count, is_speculation=False):
         log_error(f"Loi get_filtered_stocks_cached: {e}")
         return pd.DataFrame()
 
-# --- STREAMLIT UI CONFIG DARK MODE CHUẨN TRADINGVIEW ---
+# --- STREAMLIT UI CONFIG LIGHT MODE CHUYÊN NGHIỆP ---
 st.set_page_config(page_title="StockAI Enterprise", layout="wide", page_icon="📈")
 
 st.markdown("""
 <style>
-    .stApp { background-color: #131722 !important; color: #D1D4DC !important; }
-    section[data-testid="stSidebar"] { background-color: #1E222D !important; border-right: 1px solid #2A2E39; }
-    div[data-testid="stMetric"] { background-color: #1E222D !important; padding: 16px; border-radius: 8px; border: 1px solid #2A2E39; }
-    div[data-testid="stMetricLabel"] { color: #787B86 !important; font-size: 0.85rem !important; }
-    div[data-testid="stMetricValue"] { color: #E0E3EB !important; font-weight: 700 !important; }
-    div[data-testid="stBlock"] { background-color: #1E222D; padding: 20px; border-radius: 8px; border: 1px solid #2A2E39; margin-bottom: 12px; }
+    .stApp { background-color: #F8F9FA !important; color: #1E293B !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    section[data-testid="stSidebar"] { background-color: #FFFFFF !important; border-right: 1px solid #E2E8F0; }
+    div[data-testid="stMetric"] { background-color: #FFFFFF !important; padding: 16px; border-radius: 8px; border: 1px solid #E2E8F0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    div[data-testid="stMetricLabel"] { color: #64748B !important; font-size: 0.85rem !important; font-weight: 600 !important; }
+    div[data-testid="stMetricValue"] { color: #0F172A !important; font-weight: 700 !important; }
+    div[data-testid="stBlock"] { background-color: #FFFFFF; padding: 20px; border-radius: 8px; border: 1px solid #E2E8F0; margin-bottom: 12px; }
 
-    .signal-buy { background-color: rgba(8, 153, 129, 0.2) !important; color: #089981 !important; font-weight: 700 !important; padding: 6px 14px; border-radius: 6px; border: 1px solid #089981; display: inline-block; }
-    .signal-sell { background-color: rgba(242, 54, 69, 0.2) !important; color: #F23645 !important; font-weight: 700 !important; padding: 6px 14px; border-radius: 6px; border: 1px solid #F23645; display: inline-block; }
-    .signal-hold { background-color: rgba(217, 119, 6, 0.2) !important; color: #D97706 !important; font-weight: 700 !important; padding: 6px 14px; border-radius: 6px; border: 1px solid #D97706; display: inline-block; }
+    .signal-buy { background-color: #DCFCE7 !important; color: #166534 !important; font-weight: 700 !important; padding: 6px 14px; border-radius: 6px; border: 1px solid #86EFAC; display: inline-block; }
+    .signal-sell { background-color: #FEE2E2 !important; color: #991B1B !important; font-weight: 700 !important; padding: 6px 14px; border-radius: 6px; border: 1px solid #FCA5A5; display: inline-block; }
+    .signal-hold { background-color: #FEF3C7 !important; color: #92400E !important; font-weight: 700 !important; padding: 6px 14px; border-radius: 6px; border: 1px solid #FDE68A; display: inline-block; }
 
-    button[data-baseweb="tab"] { font-weight: 600 !important; font-size: 0.95rem !important; color: #787B86 !important; }
-    button[aria-selected="true"] { color: #2962FF !important; border-bottom-color: #2962FF !important; }
+    button[data-baseweb="tab"] { font-weight: 600 !important; font-size: 0.95rem !important; color: #64748B !important; }
+    button[aria-selected="true"] { color: #2563EB !important; border-bottom-color: #2563EB !important; }
 
-    /* Thanh công cụ vẽ bên trái TradingView Toolbar */
+    /* Thanh công cụ bên trái Light Mode */
     .tv-toolbar {
         display: flex;
         flex-direction: column;
         align-items: center;
-        background-color: #1E222D;
-        border-right: 1px solid #2A2E39;
+        background-color: #FFFFFF;
+        border: 1px solid #E2E8F0;
         padding: 8px 4px;
         border-radius: 6px;
         gap: 12px;
     }
     .tv-tool-btn {
-        color: #787B86;
+        color: #64748B;
         font-size: 16px;
         cursor: pointer;
         padding: 6px;
         border-radius: 4px;
     }
-    .tv-tool-btn:hover { background-color: #2A2E39; color: #2962FF; }
+    .tv-tool-btn:hover { background-color: #F1F5F9; color: #2563EB; }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("⚡ StockAI Enterprise — Terminal Phân Tích & Kỷ Luật Đầu Tư")
+st.title("📈 StockAI Enterprise — Terminal Phân Tích & Kỷ Luật Đầu Tư")
 st.caption("Hệ thống Trí Tuệ Nhân Tạo Quản Trị Rủi Ro & Nhận Diện Dòng Tiền Phân Hạng Định Giá")
 
-# SIDEBAR
+# SIDEBAR BÁO TRẠNG THÁI AI HỌC
 st.sidebar.header("🧠 TRẠNG THÁI BOT & AI TỰ HỌC")
 tot_rec, rev_rec, win_rate, st_text, st_desc = get_ai_learning_status()
 
@@ -316,7 +316,7 @@ latest = df.iloc[-1]
 price = latest['close']
 display_price_str = f"{price:,.2f}" if price < 1000 else f"{price:,.2f}"
 
-# LAYOUT 2 CỘT: CỘT BÊN TRÁI HÀNG CÔNG CỤ VẼ TRADINGVIEW + CỘT BÊN PHẢI CHỨA BIỂU ĐỒ
+# LAYOUT 2 CỘT LIGHT MODE: CỘT BÊN TRÁI LÀ CÔNG CỤ, BÊN PHẢI LÀ BIỂU ĐỒ
 col_tools, col_chart = st.columns([0.03, 0.97])
 
 with col_tools:
@@ -335,8 +335,8 @@ with col_tools:
 with col_chart:
     fig = go.Figure()
 
-    # 1. Cột Volume: Khi rê chuột chỉ hiển thị Khối Lượng
-    vol_colors = ['rgba(8, 153, 129, 0.4)' if c >= o else 'rgba(242, 54, 69, 0.4)' for c, o in zip(df['close'], df['open'])]
+    # 1. Cột Volume: Rê chuột hiển thị Khối lượng
+    vol_colors = ['rgba(8, 153, 129, 0.35)' if c >= o else 'rgba(242, 54, 69, 0.35)' for c, o in zip(df['close'], df['open'])]
     fig.add_trace(go.Bar(
         x=df['formatted_date'], y=df['volume'],
         marker_color=vol_colors,
@@ -345,7 +345,7 @@ with col_chart:
         hovertemplate="<b>Ngày: %{x}</b><br>Khối lượng: %{y:,.0f}<extra></extra>"
     ))
 
-    # 2. Biểu đồ Nến Nhật
+    # 2. Nến Nhật Light Mode
     fig.add_trace(go.Candlestick(
         x=df['formatted_date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'],
         increasing_line_color='#089981', increasing_fillcolor='#089981',
@@ -354,42 +354,42 @@ with col_chart:
         hovertemplate="<b>Ngày: %{x}</b><br>Mở: %{open:.2f}<br>Cao: %{high:.2f}<br>Thấp: %{low:.2f}<br>Đóng: %{close:.2f}<extra></extra>"
     ))
 
-    # 3. Đường Kijun 129
+    # 3. Đường Kijun 129 (Cam)
     fig.add_trace(go.Scatter(
         x=df['formatted_date'], y=df['kijun_129'],
-        line=dict(color='#F59E0B', width=2),
+        line=dict(color='#D97706', width=2.5),
         name="Ichimoku 9 129 52 26 26 (Kijun 129)",
         hovertemplate="Kijun 129: %{y:.2f}<extra></extra>"
     ))
 
-    # Cấu hình chuẩn TradingView
+    # Layout Light Mode chuẩn TradingView
     fig.update_layout(
-        title=dict(text=f"{symbol} · 1D · Index", font=dict(color='#E0E3EB', size=15)),
+        title=dict(text=f"{symbol} · 1D · Index", font=dict(color='#0F172A', size=15)),
         height=560,
-        template="plotly_dark",
+        template="plotly_white",
         xaxis_rangeslider_visible=False,
-        paper_bgcolor="#131722",
-        plot_bgcolor="#131722",
+        paper_bgcolor="#FFFFFF",
+        plot_bgcolor="#FFFFFF",
         margin=dict(l=10, r=10, t=40, b=10),
         xaxis=dict(
             type='category', # Loại bỏ ngày nghỉ (Thứ 7, CN, Lễ) để nến liền kề
-            showgrid=True, gridcolor='#2A2E39', gridwidth=0.5,
-            tickfont=dict(color='#787B86', size=11)
+            showgrid=True, gridcolor='#F1F5F9',
+            tickfont=dict(color='#64748B', size=11)
         ),
         yaxis=dict(
             side="right", # Cột bên phải hiển thị Giá
-            showgrid=True, gridcolor='#2A2E39', gridwidth=0.5,
-            tickfont=dict(color='#787B86', size=11)
+            showgrid=True, gridcolor='#F1F5F9',
+            tickfont=dict(color='#64748B', size=11)
         ),
         yaxis2=dict(
             overlaying="y",
             side="left",
             showgrid=False,
-            range=[0, df['volume'].max() * 4], # Volume đẩy gọn ở 25% đáy
+            range=[0, df['volume'].max() * 4],
             showticklabels=False
         ),
         showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0, font=dict(color='#787B86', size=11))
+        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0, font=dict(color='#64748B', size=11))
     )
 
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True})
