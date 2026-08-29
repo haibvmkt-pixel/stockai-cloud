@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import streamlit as st
 
 vnstock_lib = None
@@ -37,7 +36,6 @@ def get_db_connection():
     conn.execute("PRAGMA busy_timeout=10000;")
     return conn
 
-# --- KHỞI TẠO CSDL & DỮ LIỆU DỰ PHÒNG ---
 def init_db_and_seed_fast():
     try:
         with get_db_connection() as conn:
@@ -65,18 +63,12 @@ def init_db_and_seed_fast():
             if count == 0:
                 today_vn = datetime.now().strftime("%d/%m/%Y")
                 sample_data = [
+                    ('AAA', today_vn, 7.03, 45.5, 48.0, 'INVESTMENT', 'MUA (BUY)', 0.91, 'REVIEWED', 1),
                     ('TCB', today_vn, 24.50, 42.5, 45.0, 'INVESTMENT', 'MUA (BUY)', 0.95, 'REVIEWED', 1),
                     ('FPT', today_vn, 132.00, 44.0, 52.0, 'INVESTMENT', 'MUA (BUY)', 0.92, 'REVIEWED', 1),
                     ('HPG', today_vn, 27.10, 41.2, 48.0, 'INVESTMENT', 'MUA (BUY)', 0.89, 'REVIEWED', 1),
-                    ('MBB', today_vn, 23.80, 43.8, 41.0, 'INVESTMENT', 'MUA (BUY)', 0.88, 'REVIEWED', 1),
-                    ('STB', today_vn, 29.80, 39.5, 38.0, 'SPECULATION', 'MUA (BUY)', 0.92, 'REVIEWED', 1),
-                    ('SSI', today_vn, 26.40, 46.3, 55.0, 'SPECULATION', 'MUA (BUY)', 0.86, 'REVIEWED', 0),
                     ('EIB', today_vn, 17.35, 40.5, 42.0, 'INVESTMENT', 'MUA (BUY)', 0.88, 'REVIEWED', 1),
-                    ('MWG', today_vn, 68.20, 40.5, 42.0, 'INVESTMENT', 'MUA (BUY)', 0.85, 'REVIEWED', 1),
-                    ('VCB', today_vn, 91.50, 52.1, 50.0, 'INVESTMENT', 'THEO DÕI', 0.60, 'PENDING', 0),
-                    ('MSN', today_vn, 74.50, 58.0, 61.0, 'INVESTMENT', 'THEO DÕI', 0.58, 'PENDING', 0),
-                    ('VIC', today_vn, 42.10, 65.0, 68.0, 'INVESTMENT', 'BÁN (SELL)', 0.85, 'REVIEWED', 1),
-                    ('VHM', today_vn, 39.80, 71.2, 76.0, 'INVESTMENT', 'BÁN (SELL)', 0.90, 'REVIEWED', 1)
+                    ('SSI', today_vn, 26.40, 46.3, 55.0, 'SPECULATION', 'MUA (BUY)', 0.86, 'REVIEWED', 0)
                 ]
                 cursor.executemany("""
                     INSERT OR REPLACE INTO stock_signals 
@@ -112,21 +104,20 @@ def get_ai_learning_status():
         log_error(f"Loi get_ai_learning_status: {e}")
         return 0, 0, "N/A", "🔴 CHƯA CÓ DỮ LIỆU", "Vui lòng đợi hệ thống cập nhật."
 
-# --- TẠO CHUỖI NẾN CHUẨN DỰ PHÒNG KHI MẠNG NGHẼN ---
 def generate_fallback_df(symbol, days=365):
     dates = [datetime.now() - timedelta(days=i) for i in range(days)][::-1]
     np.random.seed(abs(hash(symbol)) % 10000)
-    base_price = 17.35 if symbol == 'EIB' else (26.40 if symbol == 'SSI' else 30.0)
-    returns = np.random.normal(0.0003, 0.018, days)
+    base_price = 7.03 if symbol == 'AAA' else (17.35 if symbol == 'EIB' else 25.0)
+    returns = np.random.normal(0.0002, 0.015, days)
     prices = base_price * np.exp(np.cumsum(returns))
     
     df = pd.DataFrame({
         'formatted_date': [d.strftime('%d/%m/%Y') for d in dates],
-        'open': prices * (1 + np.random.uniform(-0.008, 0.008, days)),
-        'high': prices * (1 + np.random.uniform(0.003, 0.015, days)),
-        'low': prices * (1 - np.random.uniform(0.003, 0.015, days)),
+        'open': prices * (1 + np.random.uniform(-0.005, 0.005, days)),
+        'high': prices * (1 + np.random.uniform(0.002, 0.012, days)),
+        'low': prices * (1 - np.random.uniform(0.002, 0.012, days)),
         'close': prices,
-        'volume': np.random.randint(2000000, 8000000, days)
+        'volume': np.random.randint(800000, 5000000, days)
     })
     return df
 
@@ -154,7 +145,6 @@ def get_real_market_data(ticker, start_date, end_date):
             except Exception as e:
                 log_error(f"Loi cao tu nguon {src} cho ma {ticker}: {e}")
                 continue
-    # Dự phòng thông minh giúp ứng dụng luôn hiển thị Dashboard
     return generate_fallback_df(ticker)
 
 def calculate_rsi(series, period=14):
@@ -179,19 +169,6 @@ def calculate_indicators(df):
     low_129 = df['low'].rolling(window=129).min()
     df['kijun_129'] = (high_129 + low_129) / 2
 
-    high_9 = df['high'].rolling(window=9).max()
-    low_9 = df['low'].rolling(window=9).min()
-    tenkan_9 = (high_9 + low_9) / 2
-
-    high_17 = df['high'].rolling(window=17).max()
-    low_17 = df['low'].rolling(window=17).min()
-    kijun_17 = (high_17 + low_17) / 2
-
-    df['span_a'] = ((tenkan_9 + kijun_17) / 2).shift(17)
-    high_26 = df['high'].rolling(window=26).max()
-    low_26 = df['low'].rolling(window=26).min()
-    df['span_b'] = ((high_26 + low_26) / 2).shift(17)
-
     df['vol_sma20'] = df['volume'].rolling(window=20).mean()
     df['rsi'] = calculate_rsi(df['close'], period=14)
     df['mfi'] = calculate_mfi(df, period=14)
@@ -200,7 +177,7 @@ def calculate_indicators(df):
 
 def analyze_advanced_strategy(df, is_margin=False):
     if len(df) < 130:
-        return "KHÔNG ĐỦ DỮ LIỆU", 0.50, "Cần tối thiểu 130 phiên để tính toán Kijun 129 và Mây Do Thái", "NEUTRAL"
+        return "KHÔNG ĐỦ DỮ LIỆU", 0.50, "Cần tối thiểu 130 phiên để tính toán Kijun 129", "NEUTRAL"
 
     latest = df.iloc[-1]
     prev = df.iloc[-2]
@@ -211,37 +188,18 @@ def analyze_advanced_strategy(df, is_margin=False):
     vol_avg = latest['vol_sma20'] if pd.notnull(latest['vol_sma20']) else vol
     
     kijun_129 = latest['kijun_129'] if pd.notnull(latest['kijun_129']) else close
-    span_a = latest['span_a'] if pd.notnull(latest['span_a']) else close
-    span_b = latest['span_b'] if pd.notnull(latest['span_b']) else close
-    
-    cloud_top = max(span_a, span_b)
-    cloud_bottom = min(span_a, span_b)
     rsi = latest['rsi'] if pd.notnull(latest['rsi']) else 50.0
     mfi = latest['mfi'] if pd.notnull(latest['mfi']) else 50.0
 
     prev_close = prev['close']
-    prev_cloud_top = max(prev['span_a'], prev['span_b']) if pd.notnull(prev['span_a']) else prev_close
-
-    is_in_cloud = cloud_bottom <= close <= cloud_top
-    is_sideway = is_in_cloud or (abs(span_a - span_b) / close < 0.015)
-
-    recent_high = df['high'].tail(60).max()
-    is_bounce_from_drop = (recent_high > close * 1.25) and (close > prev_close)
-
     entry_candle_low = prev['low']
     stop_loss_limit = 0.97 if is_margin else 0.95
 
     if low_val < entry_candle_low or close < (prev_close * stop_loss_limit):
         return "BÁN (SELL)", 0.95, "⚠️ CẮT LỖ KHẨN CẤP: Vi phạm chân nến mua/thủng tỷ lệ dừng lỗ an toàn!", "TRADER_EXIT"
 
-    if (prev_close >= prev_cloud_top and close < cloud_top) or (close < cloud_bottom):
-        return "BÁN (SELL)", 0.92, "⚠️ BÁN THOÁT HÀNG: Cổ phiếu gãy trend, chui mây hoặc dưới Mây yếu kém.", "TRADER_EXIT"
-
-    if is_bounce_from_drop:
-        return "BÁN (SELL)", 0.88, "🎯 BÁN CHỐT LỜI SƯỜN BÊN PHẢI: Nhịp hồi kỹ thuật sau cú rơi mạnh từ đỉnh.", "TRADER_EXIT"
-
-    if is_sideway and (rsi > 70 or mfi > 75):
-        return "BÁN (SELL)", 0.85, "🎯 BÁN CHỐT LỜI: Sideway chạm vùng quá mua (RSI/MFI > 70-75).", "TRADER_EXIT"
+    if close < kijun_129 * 0.98:
+        return "BÁN (SELL)", 0.92, "⚠️ BÁN THOÁT HÀNG: Cổ phiếu nằm dưới Trục 129 phiên (Xu hướng yếu).", "TRADER_EXIT"
 
     if close > kijun_129 * 1.25 and (vol < vol_avg * 0.6):
         return "BÁN (SELL)", 0.83, "🎯 BÁN HẠ TỶ TRỌNG: Giá ĐẮT ĐỎ xa đường 129 + Kiệt thanh khoản đỉnh.", "TRADER_EXIT"
@@ -253,14 +211,8 @@ def analyze_advanced_strategy(df, is_margin=False):
     if is_smart_money and close > prev_close * 1.015:
         return "MUA (BUY)", 0.92, "🔥 MUA ĐẦU CƠ: Dòng tiền Cá Mập x2 bùng nổ khối lượng đẩy giá ngắn hạn!", "SPECULATION"
 
-    if close > cloud_top and is_cheap:
-        return "MUA (BUY)", 0.96, "💎 MUA ĐẦU TƯ: UpTrend trên Mây + Định giá RẺ dưới/sát Trục 129.", "INVESTMENT"
-
-    if is_sideway and is_cheap and (rsi <= 42 or is_dry_vol):
-        return "MUA (BUY)", 0.89, "💎 MUA ĐẦU TƯ: Nền Sideway sát 129 + Kiệt cung cạn lực bán tích sản dài hạn.", "INVESTMENT"
-
-    if close > cloud_top and close <= kijun_129 * 1.15:
-        return "MUA (BUY)", 0.82, "✅ MUA BÁM SÓNG: Cổ phiếu thanh thoát trên Mây, nhịp chỉnh an toàn.", "INVESTMENT"
+    if close > kijun_129 and is_cheap:
+        return "MUA (BUY)", 0.96, "💎 MUA ĐẦU TƯ: UpTrend vượt Trục + Định giá RẺ dưới/sát Kijun 129.", "INVESTMENT"
 
     return "THEO DÕI", 0.55, "Thị trường chưa hội tụ đủ tiêu chuẩn điểm Vào/Ra an toàn.", "NEUTRAL"
 
@@ -285,31 +237,51 @@ def get_filtered_stocks_cached(limit_count, is_speculation=False):
         log_error(f"Loi get_filtered_stocks_cached: {e}")
         return pd.DataFrame()
 
-# --- CONFIG LIGHT MODE ---
+# --- STREAMLIT UI CONFIG DARK MODE CHUẨN TRADINGVIEW ---
 st.set_page_config(page_title="StockAI Enterprise", layout="wide", page_icon="📈")
 
 st.markdown("""
 <style>
-    .stApp { background-color: #F8F9FA !important; color: #1E293B !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    section[data-testid="stSidebar"] { background-color: #FFFFFF !important; border-right: 1px solid #E2E8F0; }
-    div[data-testid="stMetric"] { background-color: #FFFFFF !important; padding: 16px; border-radius: 8px; border: 1px solid #E2E8F0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-    div[data-testid="stMetricLabel"] { color: #64748B !important; font-size: 0.85rem !important; font-weight: 600 !important; }
-    div[data-testid="stMetricValue"] { color: #0F172A !important; font-weight: 700 !important; }
-    div[data-testid="stBlock"] { background-color: #FFFFFF; padding: 20px; border-radius: 8px; border: 1px solid #E2E8F0; margin-bottom: 12px; }
+    .stApp { background-color: #131722 !important; color: #D1D4DC !important; }
+    section[data-testid="stSidebar"] { background-color: #1E222D !important; border-right: 1px solid #2A2E39; }
+    div[data-testid="stMetric"] { background-color: #1E222D !important; padding: 16px; border-radius: 8px; border: 1px solid #2A2E39; }
+    div[data-testid="stMetricLabel"] { color: #787B86 !important; font-size: 0.85rem !important; }
+    div[data-testid="stMetricValue"] { color: #E0E3EB !important; font-weight: 700 !important; }
+    div[data-testid="stBlock"] { background-color: #1E222D; padding: 20px; border-radius: 8px; border: 1px solid #2A2E39; margin-bottom: 12px; }
 
-    .signal-buy { background-color: #DCFCE7 !important; color: #166534 !important; font-weight: 700 !important; padding: 6px 14px; border-radius: 6px; border: 1px solid #86EFAC; display: inline-block; }
-    .signal-sell { background-color: #FEE2E2 !important; color: #991B1B !important; font-weight: 700 !important; padding: 6px 14px; border-radius: 6px; border: 1px solid #FCA5A5; display: inline-block; }
-    .signal-hold { background-color: #FEF3C7 !important; color: #92400E !important; font-weight: 700 !important; padding: 6px 14px; border-radius: 6px; border: 1px solid #FDE68A; display: inline-block; }
+    .signal-buy { background-color: rgba(8, 153, 129, 0.2) !important; color: #089981 !important; font-weight: 700 !important; padding: 6px 14px; border-radius: 6px; border: 1px solid #089981; display: inline-block; }
+    .signal-sell { background-color: rgba(242, 54, 69, 0.2) !important; color: #F23645 !important; font-weight: 700 !important; padding: 6px 14px; border-radius: 6px; border: 1px solid #F23645; display: inline-block; }
+    .signal-hold { background-color: rgba(217, 119, 6, 0.2) !important; color: #D97706 !important; font-weight: 700 !important; padding: 6px 14px; border-radius: 6px; border: 1px solid #D97706; display: inline-block; }
 
-    button[data-baseweb="tab"] { font-weight: 600 !important; font-size: 0.95rem !important; color: #64748B !important; }
-    button[aria-selected="true"] { color: #2563EB !important; border-bottom-color: #2563EB !important; }
+    button[data-baseweb="tab"] { font-weight: 600 !important; font-size: 0.95rem !important; color: #787B86 !important; }
+    button[aria-selected="true"] { color: #2962FF !important; border-bottom-color: #2962FF !important; }
+
+    /* Thanh công cụ vẽ bên trái TradingView Toolbar */
+    .tv-toolbar {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        background-color: #1E222D;
+        border-right: 1px solid #2A2E39;
+        padding: 8px 4px;
+        border-radius: 6px;
+        gap: 12px;
+    }
+    .tv-tool-btn {
+        color: #787B86;
+        font-size: 16px;
+        cursor: pointer;
+        padding: 6px;
+        border-radius: 4px;
+    }
+    .tv-tool-btn:hover { background-color: #2A2E39; color: #2962FF; }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📈 StockAI Enterprise — Terminal Phân Tích & Kỷ Luật Đầu Tư")
+st.title("⚡ StockAI Enterprise — Terminal Phân Tích & Kỷ Luật Đầu Tư")
 st.caption("Hệ thống Trí Tuệ Nhân Tạo Quản Trị Rủi Ro & Nhận Diện Dòng Tiền Phân Hạng Định Giá")
 
-# SIDEBAR BÁO TRẠNG THÁI AI HỌC
+# SIDEBAR
 st.sidebar.header("🧠 TRẠNG THÁI BOT & AI TỰ HỌC")
 tot_rec, rev_rec, win_rate, st_text, st_desc = get_ai_learning_status()
 
@@ -320,7 +292,7 @@ st.sidebar.caption(f"• Dữ liệu đã học: **{rev_rec}** / {tot_rec} mẫu
 
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ CẤU HÌNH & QUẢN LÝ VỐN")
-symbol = st.sidebar.text_input("Mã Cổ Phiếu Phân Tích Biểu Đồ:", value="EIB").upper().strip()
+symbol = st.sidebar.text_input("Mã Cổ Phiếu Phân Tích Biểu Đồ:", value="AAA").upper().strip()
 lookback = st.sidebar.slider("Lịch sử (ngày):", 150, 730, 365)
 
 st.sidebar.markdown("---")
@@ -329,7 +301,6 @@ capital = st.sidebar.number_input("Tổng ngân sách đầu tư (VND):", value=
 use_margin = st.sidebar.checkbox("Có Sử Dụng Margin (Đòn Bẩy)?", value=False)
 risk_profile = st.sidebar.select_slider("Khẩu vị rủi ro:", options=["An toàn", "Cân bằng", "Mạo hiểm"])
 
-# --- LẤY DỮ LIỆU VÀ TÍNH TOÁN ---
 start_date = (datetime.now() - timedelta(days=lookback)).strftime("%Y-%m-%d")
 end_date = datetime.now().strftime("%Y-%m-%d")
 
@@ -345,48 +316,85 @@ latest = df.iloc[-1]
 price = latest['close']
 display_price_str = f"{price:,.2f}" if price < 1000 else f"{price:,.2f}"
 
-# BIỂU ĐỒ CỐ ĐỊNH CHUẨN TRADINGVIEW LIGHT
-fig = make_subplots(
-    rows=2, cols=1, 
-    shared_xaxes=True, 
-    vertical_spacing=0.03, 
-    row_heights=[0.75, 0.25]
-)
+# LAYOUT 2 CỘT: CỘT BÊN TRÁI HÀNG CÔNG CỤ VẼ TRADINGVIEW + CỘT BÊN PHẢI CHỨA BIỂU ĐỒ
+col_tools, col_chart = st.columns([0.03, 0.97])
 
-fig.add_trace(go.Candlestick(
-    x=df['formatted_date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'],
-    increasing_line_color='#089981', decreasing_line_color='#F23645',
-    name="Nến Giá"
-), row=1, col=1)
+with col_tools:
+    st.markdown("""
+    <div class="tv-toolbar">
+        <div class="tv-tool-btn" title="Con trỏ">┼</div>
+        <div class="tv-tool-btn" title="Đường xu hướng">╱</div>
+        <div class="tv-tool-btn" title="Kênh giá">∥</div>
+        <div class="tv-tool-btn" title="Fibonacci">≡</div>
+        <div class="tv-tool-btn" title="Thước đo %">📐</div>
+        <div class="tv-tool-btn" title="Văn bản">T</div>
+        <div class="tv-tool-btn" title="Xóa">🗑️</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-fig.add_trace(go.Scatter(x=df['formatted_date'], y=df['kijun_129'], line=dict(color='#D97706', width=2.5), name="Kijun 129"), row=1, col=1)
-fig.add_trace(go.Scatter(x=df['formatted_date'], y=df['span_a'], line=dict(color='rgba(8, 153, 129, 0.4)', width=1), name="Span A"), row=1, col=1)
-fig.add_trace(go.Scatter(x=df['formatted_date'], y=df['span_b'], line=dict(color='rgba(242, 54, 69, 0.4)', width=1), fill='tonexty', fillcolor='rgba(8, 153, 129, 0.08)', name="Mây Ichimoku"), row=1, col=1)
+with col_chart:
+    fig = go.Figure()
 
-vol_colors = ['#089981' if c >= o else '#F23645' for c, o in zip(df['close'], df['open'])]
-fig.add_trace(go.Bar(
-    x=df['formatted_date'], y=df['volume'],
-    marker_color=vol_colors,
-    name="Khối Lượng Vol"
-), row=2, col=1)
+    # 1. Cột Volume: Khi rê chuột chỉ hiển thị Khối Lượng
+    vol_colors = ['rgba(8, 153, 129, 0.4)' if c >= o else 'rgba(242, 54, 69, 0.4)' for c, o in zip(df['close'], df['open'])]
+    fig.add_trace(go.Bar(
+        x=df['formatted_date'], y=df['volume'],
+        marker_color=vol_colors,
+        name="Volume",
+        yaxis="y2",
+        hovertemplate="<b>Ngày: %{x}</b><br>Khối lượng: %{y:,.0f}<extra></extra>"
+    ))
 
-fig.update_layout(
-    title=dict(text=f"Biểu Đồ Kỹ Thuật Ichimoku & Khối Lượng — {symbol}", font=dict(color='#0F172A', size=16)),
-    height=520,
-    template="plotly_white",
-    xaxis_rangeslider_visible=False,
-    paper_bgcolor="#FFFFFF",
-    plot_bgcolor="#FFFFFF",
-    xaxis=dict(showgrid=True, gridcolor='#F1F5F9'),
-    yaxis=dict(showgrid=True, gridcolor='#F1F5F9'),
-    yaxis2=dict(showgrid=True, gridcolor='#F1F5F9', title="Volume"),
-    showlegend=True,
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-)
+    # 2. Biểu đồ Nến Nhật
+    fig.add_trace(go.Candlestick(
+        x=df['formatted_date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'],
+        increasing_line_color='#089981', increasing_fillcolor='#089981',
+        decreasing_line_color='#F23645', decreasing_fillcolor='#F23645',
+        name="Giá",
+        hovertemplate="<b>Ngày: %{x}</b><br>Mở: %{open:.2f}<br>Cao: %{high:.2f}<br>Thấp: %{low:.2f}<br>Đóng: %{close:.2f}<extra></extra>"
+    ))
 
-st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True})
+    # 3. Đường Kijun 129
+    fig.add_trace(go.Scatter(
+        x=df['formatted_date'], y=df['kijun_129'],
+        line=dict(color='#F59E0B', width=2),
+        name="Ichimoku 9 129 52 26 26 (Kijun 129)",
+        hovertemplate="Kijun 129: %{y:.2f}<extra></extra>"
+    ))
 
-# --- HỆ THỐNG TAB DƯỚI BIỂU ĐỒ ---
+    # Cấu hình chuẩn TradingView
+    fig.update_layout(
+        title=dict(text=f"{symbol} · 1D · Index", font=dict(color='#E0E3EB', size=15)),
+        height=560,
+        template="plotly_dark",
+        xaxis_rangeslider_visible=False,
+        paper_bgcolor="#131722",
+        plot_bgcolor="#131722",
+        margin=dict(l=10, r=10, t=40, b=10),
+        xaxis=dict(
+            type='category', # Loại bỏ ngày nghỉ (Thứ 7, CN, Lễ) để nến liền kề
+            showgrid=True, gridcolor='#2A2E39', gridwidth=0.5,
+            tickfont=dict(color='#787B86', size=11)
+        ),
+        yaxis=dict(
+            side="right", # Cột bên phải hiển thị Giá
+            showgrid=True, gridcolor='#2A2E39', gridwidth=0.5,
+            tickfont=dict(color='#787B86', size=11)
+        ),
+        yaxis2=dict(
+            overlaying="y",
+            side="left",
+            showgrid=False,
+            range=[0, df['volume'].max() * 4], # Volume đẩy gọn ở 25% đáy
+            showticklabels=False
+        ),
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0, font=dict(color='#787B86', size=11))
+    )
+
+    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True})
+
+# --- HỆ THỐNG TAB NẰM DƯỚI BIỂU ĐỒ ---
 tab1, tab2, tab3 = st.tabs(["📊 CHI TIẾT TÍN HIỆU & ĐI TIỀN", "💎 TOP CỔ PHIẾU MUA ĐẦU TƯ", "🔥 TOP CỔ PHIẾU MUA ĐẦU CƠ"])
 
 with tab1:
