@@ -10,12 +10,40 @@ warnings.filterwarnings("ignore")
 
 DB_NAME = "stock_data.db"
 
-# Danh sách 30+ mã cổ phiếu trụ & thanh khoản cao nhất thị trường
+# ==============================================================================
+# WATCHLIST MỞ RỘNG 100+ CỔ PHIẾU ĐẦU NGÀNH & THANH KHOẢN CAO NHẤT THỊ TRƯỜNG
+# ==============================================================================
 WATCHLIST = [
-    'TCB', 'FPT', 'HPG', 'MBB', 'STB', 'SSI', 'EIB', 'MWG', 'VCB', 'MSN',
-    'VNM', 'VIC', 'VHM', 'ACB', 'BID', 'CTG', 'HDB', 'LPB', 'SHB', 'TPB',
-    'VIB', 'VPB', 'DGW', 'FRT', 'GVR', 'KBC', 'KDH', 'NLG', 'PDR', 'PVD',
-    'PVS', 'SBT', 'VHC', 'VRE', 'AAA'
+    # 🏦 NGÂN HÀNG (BANKING)
+    'VCB', 'BID', 'CTG', 'TCB', 'MBB', 'ACB', 'VPB', 'HDB', 'LPB', 'STB', 
+    'SHB', 'TPB', 'VIB', 'MSB', 'SSB', 'OCB', 'EIB', 'BAB', 'BVB',
+    
+    # 📈 CHỨNG KHOÁN (SECURITIES)
+    'SSI', 'VND', 'VCI', 'HCM', 'SHS', 'MBS', 'FTS', 'CTS', 'BSI', 'BSI', 
+    'ORS', 'VIX', 'AGR', 'VDS',
+    
+    # 🏢 BẤT ĐỘNG SẢN & KCN (REAL ESTATE)
+    'VHM', 'VIC', 'VRE', 'NVL', 'PDR', 'DIG', 'DXG', 'KDH', 'NLG', 'CEO', 
+    'CEO', 'KBC', 'IDC', 'SZC', 'SCG', 'TCH', 'HDC', 'DXS', 'CIIC', 'BCG',
+    
+    # 🏗️ THÉP & VẬT LIỆU (METALS & CONSTRUCTION)
+    'HPG', 'HSG', 'NKG', 'VGS', 'KSB', 'HT1', 'BCC',
+    
+    # 💻 CÔNG NGHỆ, BÁN LẺ & TIÊU DÙNG (TECH & RETAIL)
+    'FPT', 'MWG', 'FRT', 'DGW', 'PET', 'MSN', 'VNM', 'SAB', 'KDC', 'PNJ',
+    
+    # ⚡ NĂNG LƯỢNG, DẦU KHÍ & HÓA CHẤT (OIL, GAS & CHEMICALS)
+    'GAS', 'PVD', 'PVS', 'PVT', 'POW', 'NT2', 'GEG', 'PC1', 'HDG', 'REE', 
+    'DPM', 'DCM', 'GVR', 'DGC', 'CSV', 'AAA',
+    
+    # 🐟 THỦY SẢN & NÔNG NGHIỆP (AGRI & SEAFOOD)
+    'VHC', 'ANV', 'IDI', 'DAB', 'BAF', 'HAG', 'HNG', 'SBT',
+    
+    # 🚢 CẢNG BIỂN, VẬN TẢI & DỆT MAY (LOGISTICS & TEXTILES)
+    'GMD', 'HAH', 'VSC', 'VOS', 'TNG', 'MSH', 'GIL',
+    
+    # 🩺 DƯỢC PHẨM & ĐẦU TƯ CÔNG (DRUGS & INFRASTRUCTURE)
+    'DBD', 'IMP', 'VCG', 'HHV', 'LCG', 'C4G', 'FCN'
 ]
 
 def get_db_connection():
@@ -32,7 +60,7 @@ def fetch_stock_history_tcbs(symbol):
             data = res.json()
             if 'data' in data and len(data['data']) > 130:
                 df = pd.DataFrame(data['data'])
-                df['formatted_date'] = pd.to_datetime(df['tradingDate']).dt.strftime('%Y-%m-%d')
+                df['formatted_date'] = pd.to_datetime(df['tradingDate']).dt.strftime('%d/%m/%Y')
                 for col in ['open', 'high', 'low', 'close', 'volume']:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
                 return df
@@ -72,9 +100,9 @@ def analyze_and_screen(symbol, df):
     mfi = latest['mfi'] if pd.notnull(latest['mfi']) else 50.0
 
     prev_close = prev['close']
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = datetime.now().strftime("%d/%m/%Y")
 
-    # Điều kiện phân loại
+    # Thuật toán phân loại tín hiệu
     is_smart_money = (vol >= vol_avg * 1.7) and (close > prev_close * 1.01)
     is_cheap = close <= kijun_129 * 1.03
 
@@ -120,18 +148,20 @@ def analyze_and_screen(symbol, df):
     return None
 
 def run_daily_scan():
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Bắt đầu tiến trình quét cổ phiếu sau phiên...")
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Bắt đầu quy trình quét 100+ cổ phiếu sau phiên...")
     conn = get_db_connection()
     cursor = conn.cursor()
 
     scanned_results = []
-    for sym in WATCHLIST:
+    total_symbols = len(WATCHLIST)
+    
+    for idx, sym in enumerate(WATCHLIST, 1):
         df = fetch_stock_history_tcbs(sym)
         if df is not None:
             res = analyze_and_screen(sym, df)
             if res:
                 scanned_results.append(res)
-                print(f" -> Phát hiện tín hiệu: {sym} | {res['strategy_type']} | {res['ai_recommendation']}")
+                print(f"[{idx}/{total_symbols}] -> Tín hiệu: {sym} | Loại: {res['strategy_type']} | Khuyến nghị: {res['ai_recommendation']}")
 
     if scanned_results:
         for item in scanned_results:
@@ -145,9 +175,9 @@ def run_daily_scan():
                 item['status'], item['accuracy_score']
             ))
         conn.commit()
-        print(f"✅ Đã ghi thành công {len(scanned_results)} cổ phiếu có điểm Mua/Bán vào CSDL.")
+        print(f"✅ Hoàn tất! Đã lưu {len(scanned_results)} cổ phiếu tiềm năng vào CSDL.")
     else:
-        print("Không có cổ phiếu nào đạt tiêu chuẩn trong phiên hôm nay.")
+        print("Phiên hôm nay chưa có mã cổ phiếu mới đạt điểm vào.")
     
     conn.close()
 
