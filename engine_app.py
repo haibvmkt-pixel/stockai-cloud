@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 import requests
 
@@ -125,30 +126,14 @@ def get_ai_learning_status():
         log_error(f"Loi get_ai_learning_status: {e}")
         return 40, 40, "100.0%", "🟢 HOÀN THÀNH BÀI HỌC", "AI đã cập nhật dữ liệu mới nhất."
 
-def generate_fallback_df(symbol, days=365):
-    dates = [datetime.now() - timedelta(days=i) for i in range(days)][::-1]
-    np.random.seed(abs(hash(symbol)) % 10000)
-    base_price = 20.55 if symbol == 'MBB' else (7.03 if symbol == 'AAA' else 25.0)
-    returns = np.random.normal(0.0002, 0.015, days)
-    prices = base_price * np.exp(np.cumsum(returns))
-    
-    df = pd.DataFrame({
-        'formatted_date': [d.strftime('%d/%m/%Y') for d in dates],
-        'open': prices * (1 + np.random.uniform(-0.005, 0.005, days)),
-        'high': prices * (1 + np.random.uniform(0.002, 0.012, days)),
-        'low': prices * (1 - np.random.uniform(0.002, 0.012, days)),
-        'close': prices,
-        'volume': np.random.randint(800000, 5000000, days)
-    })
-    return df
-
+# API TRỰC TIẾP LẤY GIÁ REALTIME CHUẨN ĐƠN VỊ THỊ TRƯỜNG
 @st.cache_data(ttl=60, show_spinner=False)
-def fetch_realtime_data_smart(symbol, start_date, end_date):
-    # Nguồn 1: TCBS API
+def fetch_realtime_data_smart(symbol):
+    # Nguồn 1: TCBS API trực tiếp
     try:
         url = f"https://apipubks.tcbs.com.vn/stock-insight/v1/stock/bars-long-term?ticker={symbol}&type=stock&resolution=D&countBack=365"
         headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, headers=headers, timeout=3)
+        res = requests.get(url, headers=headers, timeout=4)
         if res.status_code == 200:
             data = res.json()
             if 'data' in data and len(data['data']) > 0:
@@ -157,23 +142,22 @@ def fetch_realtime_data_smart(symbol, start_date, end_date):
                 for col in ['open', 'high', 'low', 'close', 'volume']:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
                 return df
-    except Exception:
-        pass
+    except Exception as e:
+        log_error(f"Loi fetch_realtime_tcbs: {e}")
 
     # Nguồn 2: vnstock lib
     if vnstock_lib is not None:
-        sources = ['TCBS', 'VCI', 'DNSE']
-        for src in sources:
+        for src in ['TCBS', 'VCI', 'DNSE']:
             try:
                 df = None
                 if hasattr(vnstock_lib, 'Vnstock'):
                     stock = vnstock_lib.Vnstock().stock(symbol=symbol, source=src)
-                    df = stock.quote.history(start=start_date, end=end_date, interval='1D')
+                    df = stock.quote.history(start="2023-01-01", end=datetime.now().strftime("%Y-%m-%d"), interval='1D')
                 elif hasattr(vnstock_lib, 'Quote'):
-                    quote = vnstock_lib.Quote(symbol=symbol, start_date=start_date, end_date=end_date, source=src)
+                    quote = vnstock_lib.Quote(symbol=symbol, start_date="2023-01-01", end_date=datetime.now().strftime("%Y-%m-%d"), source=src)
                     df = quote.history(interval='1D')
                 elif hasattr(vnstock_lib, 'stock_historical_data'):
-                    df = vnstock_lib.stock_historical_data(symbol=symbol, start_date=start_date, end_date=end_date, source=src)
+                    df = vnstock_lib.stock_historical_data(symbol=symbol, start_date="2023-01-01", end_date=datetime.now().strftime("%Y-%m-%d"), source=src)
                 
                 if df is not None and not df.empty and len(df) > 10:
                     df.columns = [str(c).lower() for c in df.columns]
@@ -183,8 +167,7 @@ def fetch_realtime_data_smart(symbol, start_date, end_date):
             except Exception:
                 continue
 
-    # Nguồn 3: Backup an toàn chống lỗi màn hình trắng
-    return generate_fallback_df(symbol)
+    return None
 
 def calculate_rsi(series, period=14):
     delta = series.diff()
@@ -348,164 +331,171 @@ capital = st.sidebar.number_input("Tổng ngân sách đầu tư (VND):", value=
 use_margin = st.sidebar.checkbox("Có Sử Dụng Margin (Đòn Bẩy)?", value=False)
 risk_profile = st.sidebar.select_slider("Khẩu vị rủi ro:", options=["An toàn", "Cân bằng", "Mạo hiểm"])
 
-start_date = (datetime.now() - timedelta(days=lookback)).strftime("%Y-%m-%d")
-end_date = datetime.now().strftime("%Y-%m-%d")
+# LẤY GIÁ REALTIME TỰ ĐỘNG
+df = fetch_realtime_data_smart(symbol)
 
-# LẤY DỮ LIỆU AN TOÀN CHỐNG LỖI MÀN HÌNH TRẮNG
-df = fetch_realtime_data_smart(symbol, start_date, end_date)
+if df is not None and not df.empty:
+    df = calculate_indicators(df)
+    ai_signal, confidence, reasoning, _ = analyze_advanced_strategy(df, is_margin=use_margin)
+    latest = df.iloc[-1]
+    prev = df.iloc[-2] if len(df) > 1 else latest
 
-df = calculate_indicators(df)
-ai_signal, confidence, reasoning, _ = analyze_advanced_strategy(df, is_margin=use_margin)
-latest = df.iloc[-1]
-prev = df.iloc[-2] if len(df) > 1 else latest
+    price = latest['close']
+    prev_close = prev['close']
+    price_change = price - prev_close
+    pct_change = (price_change / prev_close) * 100 if prev_close > 0 else 0.0
 
-price = latest['close']
-prev_close = prev['close']
-price_change = price - prev_close
-pct_change = (price_change / prev_close) * 100 if prev_close > 0 else 0.0
+    color_style = "color: #089981;" if price_change >= 0 else "color: #F23645;"
+    sign = "+" if price_change > 0 else ""
 
-color_style = "color: #089981;" if price_change >= 0 else "color: #F23645;"
-sign = "+" if price_change > 0 else ""
-
-# BẢNG THÔNG TIN HEADER REALTIME LIGHT MODE
-st.markdown(f"""
-<div class="tv-header-bar-light">
-    <div>
-        <div style="font-size: 1.1rem; font-weight: 700; color: #0F172A;">{symbol} <span style="font-size: 0.8rem; font-weight: 400; color: #64748B;">• Index</span></div>
-        <div style="display: flex; align-items: baseline; gap: 8px;">
-            <span class="tv-price-large" style="{color_style}">{price:.2f}</span>
-            <span class="tv-price-change" style="{color_style}">{sign}{price_change:.2f} ({sign}{pct_change:.2f}%)</span>
+    # BẢNG THÔNG TIN HEADER CHUẨN REALTIME
+    st.markdown(f"""
+    <div class="tv-header-bar-light">
+        <div>
+            <div style="font-size: 1.1rem; font-weight: 700; color: #0F172A;">{symbol} <span style="font-size: 0.8rem; font-weight: 400; color: #64748B;">• Index</span></div>
+            <div style="display: flex; align-items: baseline; gap: 8px;">
+                <span class="tv-price-large" style="{color_style}">{price:.2f}</span>
+                <span class="tv-price-change" style="{color_style}">{sign}{price_change:.2f} ({sign}{pct_change:.2f}%)</span>
+            </div>
         </div>
-    </div>
-    <div style="border-left: 1px solid #E2E8F0; padding-left: 16px;">
-        <div class="tv-stat-item">TRẦN / SÀN / TC</div>
-        <div class="tv-stat-val"><span style="color: #2563EB;">{(price*1.07):.2f}</span> / <span style="color: #089981;">{(price*0.93):.2f}</span> / {prev_close:.2f}</div>
-    </div>
-    <div>
-        <div class="tv-stat-item">KHỐI LƯỢNG KHỚP</div>
-        <div class="tv-stat-val">{int(latest['volume']):,} CP</div>
-    </div>
-    <div>
-        <div class="tv-stat-item">KIJUN 129</div>
-        <div class="tv-stat-val" style="color: #D97706;">{latest['kijun_129']:.2f}</div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-col_tools, col_chart = st.columns([0.03, 0.97])
-
-with col_tools:
-    st.markdown("""
-    <div class="tv-toolbar">
-        <div class="tv-tool-btn" title="Con trỏ">┼</div>
-        <div class="tv-tool-btn" title="Đường xu hướng">╱</div>
-        <div class="tv-tool-btn" title="Kênh giá">∥</div>
-        <div class="tv-tool-btn" title="Fibonacci">≡</div>
-        <div class="tv-tool-btn" title="Thước đo %">📐</div>
-        <div class="tv-tool-btn" title="Văn bản">T</div>
-        <div class="tv-tool-btn" title="Xóa">🗑️</div>
+        <div style="border-left: 1px solid #E2E8F0; padding-left: 16px;">
+            <div class="tv-stat-item">TRẦN / SÀN / TC</div>
+            <div class="tv-stat-val"><span style="color: #2563EB;">{(price*1.07):.2f}</span> / <span style="color: #089981;">{(price*0.93):.2f}</span> / {prev_close:.2f}</div>
+        </div>
+        <div>
+            <div class="tv-stat-item">KHỐI LƯỢNG KHỚP</div>
+            <div class="tv-stat-val">{int(latest['volume']):,} CP</div>
+        </div>
+        <div>
+            <div class="tv-stat-item">KIJUN 129</div>
+            <div class="tv-stat-val" style="color: #D97706;">{latest['kijun_129']:.2f}</div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
-with col_chart:
-    fig = go.Figure()
+    col_tools, col_chart = st.columns([0.03, 0.97])
 
-    vol_colors = ['rgba(8, 153, 129, 0.35)' if c >= o else 'rgba(242, 54, 69, 0.35)' for c, o in zip(df['close'], df['open'])]
-    fig.add_trace(go.Bar(
-        x=df['formatted_date'], y=df['volume'],
-        marker_color=vol_colors,
-        name="Volume",
-        yaxis="y2",
-        hovertemplate="<b>Ngày: %{x}</b><br>Khối lượng: %{y:,.0f}<extra></extra>"
-    ))
+    with col_tools:
+        st.markdown("""
+        <div class="tv-toolbar">
+            <div class="tv-tool-btn" title="Con trỏ">┼</div>
+            <div class="tv-tool-btn" title="Đường xu hướng">╱</div>
+            <div class="tv-tool-btn" title="Kênh giá">∥</div>
+            <div class="tv-tool-btn" title="Fibonacci">≡</div>
+            <div class="tv-tool-btn" title="Thước đo %">📐</div>
+            <div class="tv-tool-btn" title="Văn bản">T</div>
+            <div class="tv-tool-btn" title="Xóa">🗑️</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    fig.add_trace(go.Candlestick(
-        x=df['formatted_date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'],
-        increasing_line_color='#089981', increasing_fillcolor='#089981',
-        decreasing_line_color='#F23645', decreasing_fillcolor='#F23645',
-        name="Giá",
-        hovertemplate="<b>Ngày: %{x}</b><br>Mở: %{open:.2f}<br>Cao: %{high:.2f}<br>Thấp: %{low:.2f}<br>Đóng: %{close:.2f}<extra></extra>"
-    ))
+    with col_chart:
+        # TÁCH RIÊNG 2 KHUNG KHÔNG CHỒNG LẤN (ROW 1: PRICE 75%, ROW 2: VOLUME 25%)
+        fig = make_subplots(
+            rows=2, cols=1,
+            shared_xaxes=True,
+            vertical_spacing=0.03,
+            row_heights=[0.75, 0.25]
+        )
 
-    fig.add_trace(go.Scatter(
-        x=df['formatted_date'], y=df['kijun_129'],
-        line=dict(color='#D97706', width=2.5),
-        name="Ichimoku 9 129 52 26 26 (Kijun 129)",
-        hovertemplate="Kijun 129: %{y:.2f}<extra></extra>"
-    ))
+        # 1. Khung Nến Giá & Kijun 129 (Row 1)
+        fig.add_trace(go.Candlestick(
+            x=df['formatted_date'], open=df['open'], high=df['high'], low=df['low'], close=df['close'],
+            increasing_line_color='#089981', increasing_fillcolor='#089981',
+            decreasing_line_color='#F23645', decreasing_fillcolor='#F23645',
+            name="Giá",
+            hovertemplate="<b>Ngày: %{x}</b><br>Mở: %{open:.2f}<br>Cao: %{high:.2f}<br>Thấp: %{low:.2f}<br>Đóng: %{close:.2f}<extra></extra>"
+        ), row=1, col=1)
 
-    fig.update_layout(
-        title=dict(text=f"{symbol} · 1D · Index", font=dict(color='#0F172A', size=14)),
-        height=540,
-        template="plotly_white",
-        xaxis_rangeslider_visible=False,
-        paper_bgcolor="#FFFFFF",
-        plot_bgcolor="#FFFFFF",
-        margin=dict(l=10, r=10, t=30, b=10),
-        xaxis=dict(
-            type='category',
-            showgrid=True, gridcolor='#F1F5F9',
-            tickfont=dict(color='#64748B', size=11)
-        ),
-        yaxis=dict(
-            side="right",
-            showgrid=True, gridcolor='#F1F5F9',
-            tickfont=dict(color='#64748B', size=11)
-        ),
-        yaxis2=dict(
-            overlaying="y",
-            side="left",
-            showgrid=False,
-            range=[0, df['volume'].max() * 4],
-            showticklabels=False
-        ),
-        showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0, font=dict(color='#64748B', size=11))
-    )
+        fig.add_trace(go.Scatter(
+            x=df['formatted_date'], y=df['kijun_129'],
+            line=dict(color='#D97706', width=2.5),
+            name="Ichimoku 9 129 52 26 26 (Kijun 129)",
+            hovertemplate="Kijun 129: %{y:.2f}<extra></extra>"
+        ), row=1, col=1)
 
-    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True})
+        # 2. Khung Khối Lượng Tách BiệtHoàn Toàn Ở Đáy (Row 2)
+        vol_colors = ['#089981' if c >= o else '#F23645' for c, o in zip(df['close'], df['open'])]
+        fig.add_trace(go.Bar(
+            x=df['formatted_date'], y=df['volume'],
+            marker_color=vol_colors,
+            name="Volume",
+            hovertemplate="<b>Ngày: %{x}</b><br>Khối lượng: %{y:,.0f}<extra></extra>"
+        ), row=2, col=1)
+
+        fig.update_layout(
+            title=dict(text=f"{symbol} · 1D · Index", font=dict(color='#0F172A', size=14)),
+            height=560,
+            template="plotly_white",
+            xaxis_rangeslider_visible=False,
+            paper_bgcolor="#FFFFFF",
+            plot_bgcolor="#FFFFFF",
+            margin=dict(l=10, r=10, t=30, b=10),
+            xaxis=dict(
+                type='category', # Loại bỏ ngày nghỉ
+                showgrid=True, gridcolor='#F1F5F9',
+                tickfont=dict(color='#64748B', size=11)
+            ),
+            yaxis=dict(
+                side="right",
+                showgrid=True, gridcolor='#F1F5F9',
+                tickfont=dict(color='#64748B', size=11)
+            ),
+            yaxis2=dict(
+                side="right",
+                showgrid=True, gridcolor='#F1F5F9',
+                title="Volume",
+                tickfont=dict(color='#64748B', size=10)
+            ),
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0, font=dict(color='#64748B', size=11))
+        )
+
+        st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True})
+else:
+    st.error(f"❌ Không thể truy xuất dữ liệu cho mã '{symbol}'. Vui lòng nhấn F5 thử lại.")
 
 # --- TAB DƯỚI BIỂU ĐỒ ---
 tab1, tab2, tab3 = st.tabs(["📊 CHI TIẾT TÍN HIỆU & ĐI TIỀN", "💎 TOP CỔ PHIẾU MUA ĐẦU TƯ", "🔥 TOP CỔ PHIẾU MUA ĐẦU CƠ"])
 
 with tab1:
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Giá Khớp Lệnh", f"{price:.2f}")
-    m2.metric("Chỉ Số RSI / MFI (14)", f"{latest['rsi']:.1f} / {latest['mfi']:.1f}" if pd.notnull(latest['mfi']) else "N/A")
-    
-    if "MUA" in ai_signal:
-        m3.markdown(f"**Khuyến Nghị AI:** <span class='signal-buy'>{ai_signal}</span>", unsafe_allow_html=True)
-    elif "BÁN" in ai_signal:
-        m3.markdown(f"**Khuyến Nghị AI:** <span class='signal-sell'>{ai_signal}</span>", unsafe_allow_html=True)
-    else:
-        m3.markdown(f"**Khuyến Nghị AI:** <span class='signal-hold'>{ai_signal}</span>", unsafe_allow_html=True)
+    if df is not None and not df.empty:
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Giá Khớp Lệnh", f"{price:.2f}")
+        m2.metric("Chỉ Số RSI / MFI (14)", f"{latest['rsi']:.1f} / {latest['mfi']:.1f}" if pd.notnull(latest['mfi']) else "N/A")
+        
+        if "MUA" in ai_signal:
+            m3.markdown(f"**Khuyến Nghị AI:** <span class='signal-buy'>{ai_signal}</span>", unsafe_allow_html=True)
+        elif "BÁN" in ai_signal:
+            m3.markdown(f"**Khuyến Nghị AI:** <span class='signal-sell'>{ai_signal}</span>", unsafe_allow_html=True)
+        else:
+            m3.markdown(f"**Khuyến Nghị AI:** <span class='signal-hold'>{ai_signal}</span>", unsafe_allow_html=True)
 
-    m4.metric("Độ Tin Cậy AI", f"{confidence*100:.1f}%")
+        m4.metric("Độ Tin Cậy AI", f"{confidence*100:.1f}%")
 
-    if "BÁN" in ai_signal:
-        st.error(f"🚨 **PHÂN TÍCH TÍN HIỆU RA (BÁN/CẮT LỖ):** {reasoning}")
-    elif "MUA" in ai_signal:
-        st.success(f"🎯 **PHÂN TÍCH TÍN HIỆU VÀO (MUA):** {reasoning}")
-    else:
-        st.warning(f"💡 **PHÂN TÍCH QUAN SÁT:** {reasoning}")
+        if "BÁN" in ai_signal:
+            st.error(f"🚨 **PHÂN TÍCH TÍN HIỆU RA (BÁN/CẮT LỖ):** {reasoning}")
+        elif "MUA" in ai_signal:
+            st.success(f"🎯 **PHÂN TÍCH TÍN HIỆU VÀO (MUA):** {reasoning}")
+        else:
+            st.warning(f"💡 **PHÂN TÍCH QUAN SÁT:** {reasoning}")
 
-    st.subheader("💡 Khuyến Nghị Đi Tiền & Phân Bổ Vốn")
-    alloc_pct = 0.0
-    if "MUA" in ai_signal:
-        alloc_pct = 0.20 if risk_profile == "An toàn" else (0.35 if risk_profile == "Cân bằng" else 0.50)
-    elif "BÁN" in ai_signal:
+        st.subheader("💡 Khuyến Nghị Đi Tiền & Phân Bổ Vốn")
         alloc_pct = 0.0
-    else:
-        alloc_pct = 0.10
+        if "MUA" in ai_signal:
+            alloc_pct = 0.20 if risk_profile == "An toàn" else (0.35 if risk_profile == "Cân bằng" else 0.50)
+        elif "BÁN" in ai_signal:
+            alloc_pct = 0.0
+        else:
+            alloc_pct = 0.10
 
-    target_amount = capital * alloc_pct
-    actual_buy_price = price * 1000 if price < 1000 else price
-    max_shares = int(target_amount / actual_buy_price) if actual_buy_price > 0 else 0
+        target_amount = capital * alloc_pct
+        actual_buy_price = price * 1000 if price < 1000 else price
+        max_shares = int(target_amount / actual_buy_price) if actual_buy_price > 0 else 0
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Tỷ Lệ Giải Ngân Tối Đa", f"{alloc_pct*100:.0f}% Tổng Vốn")
-    c2.metric("Số Tiền Khuyến Nghị Đi Lệnh", f"{target_amount:,.0f} VND")
-    c3.metric("Số Lượng Cổ Phiếu Nên Mua", f"{max_shares:,} CP")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Tỷ Lệ Giải Ngân Tối Đa", f"{alloc_pct*100:.0f}% Tổng Vốn")
+        c2.metric("Số Tiền Khuyến Nghị Đi Lệnh", f"{target_amount:,.0f} VND")
+        c3.metric("Số Lượng Cổ Phiếu Nên Mua", f"{max_shares:,} CP")
 
 with tab2:
     st.subheader("💎 DANH MỤC CỔ PHIẾU MUA ĐẦU TƯ (DÀI HẠN / TÍCH SẢN)")
